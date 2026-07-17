@@ -4,6 +4,15 @@
 Download all ticker data as far back as Yahoo Finance provides, at the highest
 granularity available (daily + monthly).
 
+## Documentation
+Full system docs live in `docs/` — start at `docs/README.md`:
+- `docs/data_dictionary.md` — every output file, field-by-field
+- `docs/coverage.md` — date ranges, per-ticker/asset-class/sector coverage
+- `docs/methodology.md` — how values are derived (adjustment, returns, aggregation)
+- `docs/nuances_and_caveats.md` — data quirks + integrity-audit triage
+- `docs/scripts_reference.md` — the 3 scripts, config, reproducibility
+Root `README.md` is the entry point.
+
 ## Current state (2026-07-17)
 - Branch: `feat/expand-universe-daily-download` (commit 330ab25), **not yet pushed / no PR**.
 - Universe: **342 tickers** (71 original asset-class + 128 individual stocks + 143 new
