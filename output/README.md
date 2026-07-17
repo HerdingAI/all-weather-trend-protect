@@ -1,6 +1,6 @@
 # Monthly Returns Across Asset Classes
 
-Generated: 2026-07-17 20:56 UTC
+Generated: 2026-07-17 21:03 UTC
 Source: Yahoo Finance via `yfinance` v1.5.1. Prices are **auto-adjusted**
 (split + dividend adjusted = total-return close) for ETFs/stocks, so monthly
 returns are **total returns**. Broad indices (^GSPC, ^DJI, ^IXIC, ^RUT, ^VIX) are

@@ -1,0 +1,40 @@
+severity,check,detail
+PASS,A1 daily index monotonic,yes
+PASS,A2 daily index unique,no duplicate dates
+PASS,A3 monthly index monotonic+unique,yes
+PASS,A4 daily cols == universe,342 match 342
+PASS,A5 returns panel schema,all required columns present
+PASS,B1 daily tickers with data,341/342 (1 empty)
+PASS,B2 only-expected empty ticker,"SPAXX (money market, 1d/5d only)"
+WARN,B3 internal gaps,"2 series with gaps; worst VMRXX (13 gaps, max 104d)"
+PASS,B4 truncation-cluster check,no suspicious shared-start clusters
+PASS,B5 monthly==daily-resampled,0/336 tickers diverge >2% on >5% of months
+PASS,C1 negative prices,0 cells
+PASS,C1b zero prices,0 cells
+PASS,C1c extreme high prices,0 cells >1e8
+PASS,C1d tiny prices,0 cells <1e-4
+WARN,C2 extreme returns,"23 cells >|50%|; top: {'^VIX': np.int64(9), 'AIG': np.int64(3), 'MCD': np.int64(2), 'WMB': np.int64(2), 'AAPL': np.int64(1)}"
+WARN,C3 internal NaN,1106 NaN cells inside active spans
+PASS,D1 panel return==price pct_change,0/20 sampled tickers mismatch
+PASS,D2 monthly return==close ratio,0/20 mismatch
+PASS,D3 twins,VFINX↔VFIAX: corr=0.9999 maxRetDiff=0.389%  (ok)
+PASS,D3 twins,VTSMX↔VTSAX: corr=0.9999 maxRetDiff=0.414%  (ok)
+WARN,D3 twins,VBMFX↔VBTLX: corr=0.9948 maxRetDiff=0.731%  (DIVERGES)
+WARN,D3 twins,VGHCX↔VGHAX: corr=0.9948 maxRetDiff=6.732%  (DIVERGES)
+WARN,D3 twins,VWEHX↔VWEAX: corr=0.9937 maxRetDiff=0.836%  (DIVERGES)
+WARN,D3 twins,VIVAX↔VVIAX: corr=0.9983 maxRetDiff=4.262%  (DIVERGES)
+WARN,D3 twins,NAESX↔VSMAX: corr=0.9927 maxRetDiff=13.676%  (DIVERGES)
+WARN,D3 twins,VIG↔VDADX: corr=0.9978 maxRetDiff=1.284%  (DIVERGES)
+WARN,D3 twins,VYM↔VHYAX: corr=0.9974 maxRetDiff=1.838%  (DIVERGES)
+WARN,D3 twins,VT↔VTWAX: corr=0.9972 maxRetDiff=1.351%  (DIVERGES)
+WARN,D3 twins summary,"2 pass, 8 diverge, 0 n/a"
+PASS,D4 SPY vs ^GSPC (TR>price),SPY growth 30.825 vs ^GSPC 16.996 over 1993-01-29->2026-07-17
+PASS,E1 coverage stats bounds,"vol>=0, pct_pos in [0,100], ann_ret in [-60,250]"
+PASS,E2 coverage rows==panel tickers,341 vs 341
+PASS,F1 not-on-Yahoo absent,24 confirmed absent from all outputs
+PASS,F2 daily-only recovery,"AUBAX: has daily, no monthly (documented quirk)"
+PASS,F2 daily-only recovery,"LOMMX: has daily, no monthly (documented quirk)"
+PASS,F2 daily-only recovery,"PADMX: has daily, no monthly (documented quirk)"
+PASS,F2 daily-only recovery,"PAGPX: has daily, no monthly (documented quirk)"
+PASS,F2 daily-only recovery,"PIGLX: has daily, no monthly (documented quirk)"
+PASS,F3 SPAXX empty (money mkt),confirmed empty in daily
