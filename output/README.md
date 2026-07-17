@@ -60,6 +60,5 @@ Longest series:
 
 ## Reproduce
 ```bash
-cd /home/buntu/Stock_Price
 .venv/bin/python pull_returns.py
 ```

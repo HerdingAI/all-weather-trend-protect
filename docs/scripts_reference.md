@@ -120,7 +120,6 @@ printed summary. Latest run: **27 PASS · 12 WARN · 0 FAIL**.
 
 ```bash
 # Fresh full rebuild (slowest, most accurate)
-cd /home/buntu/Stock_Price
 rm -f output/daily_prices.parquet        # drop daily cache to force re-download
 .venv/bin/python pull_returns.py        # monthly (always re-pulls)
 .venv/bin/python pull_daily.py          # daily  (now re-downloads too)

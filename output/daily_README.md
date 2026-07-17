@@ -35,7 +35,6 @@ Source: Yahoo Finance via `yfinance` v1.5.1. Prices are **auto-adjusted**
 
 ## Reproduce
 ```bash
-cd /home/buntu/Stock_Price
 .venv/bin/python pull_daily.py
 ```
 

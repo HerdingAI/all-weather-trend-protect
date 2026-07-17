@@ -60,7 +60,6 @@ audit_integrity.py  ──(reads all outputs)──►  output/integrity_report.
 ## Quick start
 
 ```bash
-cd /home/buntu/Stock_Price
 pip install -r requirements.txt          # yfinance, pandas, numpy, pyarrow, requests
 
 .venv/bin/python pull_returns.py         # monthly outputs  (refresh all 342 tickers)

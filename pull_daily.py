@@ -223,7 +223,6 @@ if HAS_PARQUET:
 readme += f"""
 ## Reproduce
 ```bash
-cd /home/buntu/Stock_Price
 .venv/bin/python pull_daily.py
 ```
 
