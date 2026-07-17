@@ -1,0 +1,137 @@
+ticker,name,asset_class,sector,first_month,last_month,n_months,present
+^GSPC,S&P 500 Index,US Equity,INDEX,1985-01-31,2026-07-31,499,True
+SPY,SPDR S&P 500 ETF,US Equity,ETF,1993-01-31,2026-07-31,403,True
+VTI,Vanguard Total US Market ETF,US Equity,ETF,2001-06-30,2026-07-31,302,True
+QQQ,Invesco Nasdaq-100 ETF,US Equity,ETF,1999-03-31,2026-07-31,329,True
+^IXIC,Nasdaq Composite Index,US Equity,INDEX,1985-01-31,2026-07-31,499,True
+^DJI,Dow Jones Industrial Avg,US Equity,INDEX,1992-01-31,2026-07-31,415,True
+IWM,iShares Russell 2000 ETF,US Equity,ETF,2000-05-31,2026-07-31,315,True
+^RUT,Russell 2000 Index,US Equity,INDEX,1987-09-30,2026-07-31,467,True
+SPHB,Invesco S&P 500 High Beta ETF,US Equity,ETF,2011-05-31,2026-07-31,183,True
+EFA,iShares MSCI EAFE ETF,International Equity,ETF,2001-08-31,2026-07-31,300,True
+VEA,Vanguard FTSE Developed ETF,International Equity,ETF,2007-07-31,2026-07-31,229,True
+VWO,Vanguard Emerging Markets ETF,International Equity,ETF,2005-03-31,2026-07-31,257,True
+EEM,iShares MSCI Emerging ETF,International Equity,ETF,2003-04-30,2026-07-31,280,True
+VXUS,Vanguard Total Intl Stock ETF,International Equity,ETF,2011-01-31,2026-07-31,187,True
+AGG,iShares Core US Aggregate Bond,US Bonds,ETF,2003-09-30,2026-07-31,275,True
+BND,Vanguard Total Bond Market,US Bonds,ETF,2007-04-30,2026-07-31,232,True
+IEF,iShares 7-10yr Treasury,US Treasuries,ETF,2002-07-31,2026-07-31,289,True
+TLT,iShares 20+yr Treasury Bond,US Treasuries,ETF,2002-07-31,2026-07-31,289,True
+SHY,iShares 1-3yr Treasury,US Treasuries,ETF,2002-07-31,2026-07-31,289,True
+LQD,iShares IG Corporate Bond,US Corporate Bonds,ETF,2002-07-31,2026-07-31,289,True
+HYG,iShares High Yield Corp Bond,US Corporate Bonds,ETF,2007-04-30,2026-07-31,232,True
+TIP,iShares TIPS Bond,US Bonds,ETF,2003-12-31,2026-07-31,272,True
+MUB,iShares National Muni Bond,US Municipal Bonds,ETF,2007-09-30,2026-07-31,227,True
+^TNX,CBOE 10yr Treasury Yield,US Treasuries,YIELD,1985-01-31,2026-07-31,499,True
+GLD,SPDR Gold Shares,Gold,ETF,2004-11-30,2026-07-31,261,True
+IAU,iShares Gold Trust,Gold,ETF,2005-01-31,2026-07-31,259,True
+SLV,iShares Silver Trust,Silver,ETF,2006-04-30,2026-07-31,244,True
+VNQ,Vanguard Real Estate ETF,US REIT,ETF,2004-09-30,2026-07-31,263,True
+IYR,iShares US Real Estate ETF,US REIT,ETF,2000-06-30,2026-07-31,314,True
+DBC,Invesco DB Commodity Index,Commodities,ETF,2006-02-28,2026-07-31,246,True
+GSG,iShares S&P GSCI Commodity,Commodities,ETF,2006-07-31,2026-07-31,241,True
+PDBC,Invesco Optimum Yield Commodity,Commodities,ETF,2014-11-30,2026-07-31,141,True
+XLE,Energy Select Sector SPDR,Sector-Energy,ETF,1998-12-31,2026-07-31,332,True
+XLF,Financial Select Sector SPDR,Sector-Financials,ETF,1998-12-31,2026-07-31,332,True
+XLK,Technology Select Sector SPDR,Sector-Technology,ETF,1998-12-31,2026-07-31,332,True
+XLV,Health Care Select Sector SPDR,Sector-Healthcare,ETF,1998-12-31,2026-07-31,332,True
+XLY,Consumer Discretionary SPDR,Sector-Cons Disc,ETF,1998-12-31,2026-07-31,332,True
+XLP,Consumer Staples Select SPDR,Sector-Cons Staples,ETF,1998-12-31,2026-07-31,332,True
+XLI,Industrial Select Sector SPDR,Sector-Industrials,ETF,1998-12-31,2026-07-31,332,True
+XLB,Materials Select Sector SPDR,Sector-Materials,ETF,1998-12-31,2026-07-31,332,True
+XLU,Utilities Select Sector SPDR,Sector-Utilities,ETF,1998-12-31,2026-07-31,332,True
+XLRE,Real Estate Select Sector SPDR,Sector-Real Estate,ETF,2015-10-31,2026-07-31,130,True
+XLC,Communication Services SPDR,Sector-Comm Services,ETF,2018-06-30,2026-07-31,98,True
+^VIX,CBOE Volatility Index,Volatility,INDEX,1990-01-31,2026-07-31,439,True
+AAPL,AAPL common stock,Equity (single stock),Technology,1985-01-31,2026-07-31,499,True
+MSFT,MSFT common stock,Equity (single stock),Technology,1986-03-31,2026-07-31,485,True
+NVDA,NVDA common stock,Equity (single stock),Technology,1999-01-31,2026-07-31,331,True
+AVGO,AVGO common stock,Equity (single stock),Technology,2009-08-31,2026-07-31,204,True
+ORCL,ORCL common stock,Equity (single stock),Technology,1986-03-31,2026-07-31,485,True
+ADBE,ADBE common stock,Equity (single stock),Technology,1986-08-31,2026-07-31,480,True
+CRM,CRM common stock,Equity (single stock),Technology,2004-06-30,2026-07-31,266,True
+INTC,INTC common stock,Equity (single stock),Technology,1985-01-31,2026-07-31,499,True
+AMD,AMD common stock,Equity (single stock),Technology,1985-01-31,2026-07-31,499,True
+CSCO,CSCO common stock,Equity (single stock),Technology,1990-02-28,2026-07-31,438,True
+QCOM,QCOM common stock,Equity (single stock),Technology,1991-12-31,2026-07-31,416,True
+TXN,TXN common stock,Equity (single stock),Technology,1985-01-31,2026-07-31,499,True
+IBM,IBM common stock,Equity (single stock),Technology,1962-01-31,2026-07-31,775,True
+NOW,NOW common stock,Equity (single stock),Technology,2012-06-30,2026-07-31,170,True
+INTU,INTU common stock,Equity (single stock),Technology,1993-03-31,2026-07-31,401,True
+GOOGL,GOOGL common stock,Equity (single stock),Communication Srv,2004-08-31,2026-07-31,264,True
+META,META common stock,Equity (single stock),Communication Srv,2012-05-31,2026-07-31,171,True
+VZ,VZ common stock,Equity (single stock),Communication Srv,1985-01-31,2026-07-31,499,True
+TMUS,TMUS common stock,Equity (single stock),Communication Srv,2007-04-30,2026-07-31,232,True
+CMCSA,CMCSA common stock,Equity (single stock),Communication Srv,1980-03-31,2026-07-31,557,True
+T,T common stock,Equity (single stock),Communication Srv,1983-11-30,2026-07-31,513,True
+AMZN,AMZN common stock,Equity (single stock),Consumer Discretionary,1997-05-31,2026-07-31,351,True
+TSLA,TSLA common stock,Equity (single stock),Consumer Discretionary,2010-06-30,2026-07-31,194,True
+HD,HD common stock,Equity (single stock),Consumer Discretionary,1985-01-31,2026-07-31,499,True
+MCD,MCD common stock,Equity (single stock),Consumer Discretionary,1985-01-31,2026-07-31,499,True
+NKE,NKE common stock,Equity (single stock),Consumer Discretionary,1985-01-31,2026-07-31,499,True
+SBUX,SBUX common stock,Equity (single stock),Consumer Discretionary,1992-06-30,2026-07-31,410,True
+LOW,LOW common stock,Equity (single stock),Consumer Discretionary,1985-01-31,2026-07-31,499,True
+BKNG,BKNG common stock,Equity (single stock),Consumer Discretionary,1999-03-31,2026-07-31,329,True
+F,F common stock,Equity (single stock),Consumer Discretionary,1985-01-31,2026-07-31,499,True
+GM,GM common stock,Equity (single stock),Consumer Discretionary,2010-11-30,2026-07-31,189,True
+WMT,WMT common stock,Equity (single stock),Consumer Staples,1972-08-31,2026-07-31,648,True
+KO,KO common stock,Equity (single stock),Consumer Staples,1985-01-31,2026-07-31,499,True
+PEP,PEP common stock,Equity (single stock),Consumer Staples,1985-01-31,2026-07-31,499,True
+PG,PG common stock,Equity (single stock),Consumer Staples,1985-01-31,2026-07-31,499,True
+COST,COST common stock,Equity (single stock),Consumer Staples,1986-07-31,2026-07-31,481,True
+MDLZ,MDLZ common stock,Equity (single stock),Consumer Staples,2001-06-30,2026-07-31,302,True
+CL,CL common stock,Equity (single stock),Consumer Staples,1985-01-31,2026-07-31,499,True
+TGT,TGT common stock,Equity (single stock),Consumer Staples,1985-01-31,2026-07-31,499,True
+JNJ,JNJ common stock,Equity (single stock),Healthcare,1985-01-31,2026-07-31,499,True
+UNH,UNH common stock,Equity (single stock),Healthcare,1985-01-31,2026-07-31,499,True
+LLY,LLY common stock,Equity (single stock),Healthcare,1985-01-31,2026-07-31,499,True
+PFE,PFE common stock,Equity (single stock),Healthcare,1985-01-31,2026-07-31,499,True
+ABBV,ABBV common stock,Equity (single stock),Healthcare,2013-01-31,2026-07-31,163,True
+MRK,MRK common stock,Equity (single stock),Healthcare,1985-01-31,2026-07-31,499,True
+TMO,TMO common stock,Equity (single stock),Healthcare,1985-01-31,2026-07-31,499,True
+ABT,ABT common stock,Equity (single stock),Healthcare,1985-01-31,2026-07-31,499,True
+DHR,DHR common stock,Equity (single stock),Healthcare,1978-12-31,2026-07-31,572,True
+BMY,BMY common stock,Equity (single stock),Healthcare,1985-01-31,2026-07-31,499,True
+JPM,JPM common stock,Equity (single stock),Financials,1985-01-31,2026-07-31,499,True
+BAC,BAC common stock,Equity (single stock),Financials,1985-01-31,2026-07-31,499,True
+WFC,WFC common stock,Equity (single stock),Financials,1985-01-31,2026-07-31,499,True
+GS,GS common stock,Equity (single stock),Financials,1999-05-31,2026-07-31,327,True
+MS,MS common stock,Equity (single stock),Financials,1993-02-28,2026-07-31,402,True
+BLK,BLK common stock,Equity (single stock),Financials,1999-10-31,2026-07-31,322,True
+V,V common stock,Equity (single stock),Financials,2008-03-31,2026-07-31,221,True
+MA,MA common stock,Equity (single stock),Financials,2006-05-31,2026-07-31,243,True
+AXP,AXP common stock,Equity (single stock),Financials,1985-01-31,2026-07-31,499,True
+SCHW,SCHW common stock,Equity (single stock),Financials,1987-09-30,2026-07-31,467,True
+CB,CB common stock,Equity (single stock),Financials,1993-03-31,2026-07-31,401,True
+BA,BA common stock,Equity (single stock),Industrials,1985-01-31,2026-07-31,499,True
+CAT,CAT common stock,Equity (single stock),Industrials,1985-01-31,2026-07-31,499,True
+GE,GE common stock,Equity (single stock),Industrials,1962-01-31,2026-07-31,775,True
+HON,HON common stock,Equity (single stock),Industrials,1962-01-31,2026-07-31,775,True
+UPS,UPS common stock,Equity (single stock),Industrials,1999-11-30,2026-07-31,321,True
+UNP,UNP common stock,Equity (single stock),Industrials,1985-01-31,2026-07-31,499,True
+RTX,RTX common stock,Equity (single stock),Industrials,1985-01-31,2026-07-31,499,True
+DE,DE common stock,Equity (single stock),Industrials,1985-01-31,2026-07-31,499,True
+LMT,LMT common stock,Equity (single stock),Industrials,1985-01-31,2026-07-31,499,True
+XOM,XOM common stock,Equity (single stock),Energy,1985-01-31,2026-07-31,499,True
+CVX,CVX common stock,Equity (single stock),Energy,1985-01-31,2026-07-31,499,True
+COP,COP common stock,Equity (single stock),Energy,1985-01-31,2026-07-31,499,True
+SLB,SLB common stock,Equity (single stock),Energy,1985-01-31,2026-07-31,499,True
+EOG,EOG common stock,Equity (single stock),Energy,1989-10-31,2026-07-31,442,True
+PSX,PSX common stock,Equity (single stock),Energy,2012-04-30,2026-07-31,172,True
+MPC,MPC common stock,Equity (single stock),Energy,2011-06-30,2026-07-31,182,True
+LIN,LIN common stock,Equity (single stock),Materials,1992-06-30,2026-07-31,410,True
+APD,APD common stock,Equity (single stock),Materials,1985-01-31,2026-07-31,499,True
+NEM,NEM common stock,Equity (single stock),Materials,1985-01-31,2026-07-31,499,True
+FCX,FCX common stock,Equity (single stock),Materials,1995-07-31,2026-07-31,373,True
+DOW,DOW common stock,Equity (single stock),Materials,2019-03-31,2026-07-31,89,True
+NEE,NEE common stock,Equity (single stock),Utilities,1985-01-31,2026-07-31,499,True
+DUK,DUK common stock,Equity (single stock),Utilities,1985-01-31,2026-07-31,499,True
+SO,SO common stock,Equity (single stock),Utilities,1985-01-31,2026-07-31,499,True
+AEP,AEP common stock,Equity (single stock),Utilities,1985-01-31,2026-07-31,499,True
+EXC,EXC common stock,Equity (single stock),Utilities,1973-05-31,2026-07-31,639,True
+PLD,PLD common stock,Equity (single stock),Real Estate,1997-11-30,2026-07-31,345,True
+AMT,AMT common stock,Equity (single stock),Real Estate,1998-02-28,2026-07-31,342,True
+CCI,CCI common stock,Equity (single stock),Real Estate,1998-08-31,2026-07-31,336,True
+EQIX,EQIX common stock,Equity (single stock),Real Estate,2000-08-31,2026-07-31,312,True
+SPG,SPG common stock,Equity (single stock),Real Estate,1993-12-31,2026-07-31,392,True
+PSA,PSA common stock,Equity (single stock),Real Estate,1985-01-31,2026-07-31,499,True
