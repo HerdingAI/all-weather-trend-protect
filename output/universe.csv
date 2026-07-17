@@ -42,7 +42,177 @@ XLB,Materials Select Sector SPDR,Sector-Materials,ETF,1998-12-31,2026-07-31,332,
 XLU,Utilities Select Sector SPDR,Sector-Utilities,ETF,1998-12-31,2026-07-31,332,True
 XLRE,Real Estate Select Sector SPDR,Sector-Real Estate,ETF,2015-10-31,2026-07-31,130,True
 XLC,Communication Services SPDR,Sector-Comm Services,ETF,2018-06-30,2026-07-31,98,True
+GBTC,Grayscale Bitcoin Trust,Digital Assets,ETF,2015-05-31,2026-07-31,135,True
+IBIT,iShares Bitcoin Trust ETF,Digital Assets,ETF,2024-01-31,2026-07-31,31,True
+BITO,ProShares Bitcoin Strategy ETF,Digital Assets,ETF,2021-10-31,2026-07-31,58,True
+IJH,iShares Core S&P Mid-Cap ETF,US Equity,ETF,2000-05-31,2026-07-31,315,True
+MDY,SPDR S&P MidCap 400 ETF,US Equity,ETF,1995-05-31,2026-07-31,375,True
+VO,Vanguard Mid-Cap ETF,US Equity,ETF,2004-01-31,2026-07-31,271,True
+IJS,iShares S&P SmallCap 600 Value,US Equity,ETF,2000-07-31,2026-07-31,313,True
+IJT,iShares S&P SmallCap 600 Growth,US Equity,ETF,2000-07-31,2026-07-31,313,True
+VBR,Vanguard Small-Cap Value ETF,US Equity,ETF,2004-01-31,2026-07-31,271,True
+VB,Vanguard Small-Cap ETF,US Equity,ETF,2004-01-31,2026-07-31,271,True
+VGK,Vanguard FTSE Europe ETF,International Equity,ETF,2005-03-31,2026-07-31,257,True
+VPL,Vanguard FTSE Pacific ETF,International Equity,ETF,2005-03-31,2026-07-31,257,True
+FXI,iShares China Large-Cap ETF,International Equity,ETF,2004-10-31,2026-07-31,262,True
+EMB,iShares EM USD Bond ETF,EM Bonds,ETF,2007-12-31,2026-07-31,224,True
+UUP,Invesco DB US Dollar Bullish,Currency,ETF,2007-03-31,2026-07-31,233,True
+^FVX,CBOE 5yr Treasury Yield,US Treasuries,YIELD,1985-01-31,2026-07-31,499,True
+^TYX,CBOE 30yr Treasury Yield,US Treasuries,YIELD,1985-01-31,2026-07-31,499,True
+PFF,iShares Preferred ETF,Preferred Stock,ETF,2007-03-31,2026-07-31,233,True
+USO,United States Oil Fund,Commodities,ETF,2006-04-30,2026-07-31,244,True
+IBB,iShares Biotechnology ETF,Sector-Biotech,ETF,2001-02-28,2026-07-31,306,True
+XBI,SPDR S&P Biotech ETF,Sector-Biotech,ETF,2006-02-28,2026-07-31,246,True
+SMH,VanEck Semiconductor ETF,Sector-Semiconductors,ETF,2000-06-30,2026-07-31,314,True
+SOXX,iShares Semiconductor ETF,Sector-Semiconductors,ETF,2001-07-31,2026-07-31,301,True
+XHB,SPDR S&P Homebuilders ETF,Sector-Homebuilders,ETF,2006-02-28,2026-07-31,246,True
+KRE,SPDR S&P Regional Banking ETF,Sector-Financials,ETF,2006-06-30,2026-07-31,242,True
+ICLN,iShares Global Clean Energy ETF,Sector-Clean Energy,ETF,2008-06-30,2026-07-31,218,True
+NOBL,ProShares Dividend Aristocrats,US Equity,ETF,2013-10-31,2026-07-31,154,True
 ^VIX,CBOE Volatility Index,Volatility,INDEX,1990-01-31,2026-07-31,439,True
+PCRIX,PIMCO Commodity Real Ret Strat Instl,Commodities,MUTUALFUND,2002-07-31,2026-07-31,289,True
+ASA,ASA Gold and Precious Metals Ltd,Gold/Precious Metals,STOCK,1985-01-31,2026-07-31,499,True
+FSAGX,Fidelity Select Gold,Gold/Precious Metals,MUTUALFUND,1985-12-31,2026-07-31,488,True
+INIVX,VanEck International Investors Gold A,Gold/Precious Metals,MUTUALFUND,1985-01-31,2026-07-31,499,True
+BNDW,Vanguard Total World Bond ETF,International Bonds,ETF,2018-09-30,2026-07-31,95,True
+IGOV,iShares International Treasury Bond ETF,International Bonds,ETF,2009-01-31,2026-07-31,211,True
+PADMX,PIMCO Global Bond Fund Unhedged,International Bonds,MUTUALFUND,,,0,False
+PAGPX,PIMCO Global Bond Fund Unhedged Adm,International Bonds,MUTUALFUND,,,0,False
+PIGLX,PIMCO Global Bond Fund Unhedged Instl,International Bonds,MUTUALFUND,,,0,False
+VTABX,Vanguard Total Intl Bond Idx Admiral,International Bonds,MUTUALFUND,2013-06-30,2026-07-31,158,True
+VTIBX,Vanguard Total Intl Bond Idx Investor,International Bonds,MUTUALFUND,2013-06-30,2026-07-31,158,True
+DISV,Dimensional Intl Small Cap Value ETF,International Equity,ETF,2022-03-31,2026-07-31,53,True
+DISVX,DFA International Small Cap Value Portfolio,International Equity,MUTUALFUND,1994-12-31,2026-07-31,380,True
+EFV,iShares MSCI EAFE Value ETF,International Equity,ETF,2005-08-31,2026-07-31,252,True
+ISVL,iShares Intl Developed Small Cap Value,International Equity,ETF,2021-03-31,2026-07-31,65,True
+VDVIX,Vanguard Developed Markets Index Fund,International Equity,MUTUALFUND,2013-12-31,2026-07-31,152,True
+VEIEX,Vanguard Emerging Markets Stock Index Inv,International Equity,MUTUALFUND,1994-05-31,2026-07-31,387,True
+VEMAX,Vanguard Emerging Markets Stock Index Adm,International Equity,MUTUALFUND,2006-06-30,2026-07-31,242,True
+VEURX,Vanguard FTSE Europe ETF,International Equity,MUTUALFUND,1990-06-30,2026-07-31,434,True
+VEUSX,Vanguard FTSE Europe ETF Adm,International Equity,MUTUALFUND,2001-08-31,2026-07-31,300,True
+VFSAX,Vanguard FTSE All-World ex-US Small Cap,International Equity,MUTUALFUND,2019-02-28,2026-07-31,90,True
+VGTSX,Vanguard Total Intl Stock Index Inv,International Equity,MUTUALFUND,1996-04-30,2026-07-31,364,True
+VINEX,Vanguard International Explorer Inv,International Equity,MUTUALFUND,1996-11-30,2026-07-31,357,True
+VPACX,Vanguard Pacific Stock Index Investor,International Equity,MUTUALFUND,1990-06-30,2026-07-31,434,True
+VPADX,Vanguard Pacific Stock Index Admiral,International Equity,MUTUALFUND,2001-08-31,2026-07-31,300,True
+VSS,Vanguard FTSE All-World ex-US Small-Cap ETF,International Equity,ETF,2009-04-30,2026-07-31,208,True
+VTIAX,Vanguard Total Intl Stock Index Admiral,International Equity,MUTUALFUND,2010-11-30,2026-07-31,189,True
+VTMGX,Vanguard Developed Markets Index Admiral,International Equity,MUTUALFUND,1999-08-31,2026-07-31,324,True
+VTRIX,Vanguard International Value Inv,International Equity,MUTUALFUND,1985-01-31,2026-07-31,499,True
+SPAXX,Fidelity Government Money Market,Money Market,MONEYMARKET,,,0,False
+VMRXX,Vanguard Cash Reserves Money Market,Money Market,MONEYMARKET,2023-04-30,2026-07-31,37,True
+VUSXX,Vanguard Treasury Money Market,Money Market,MONEYMARKET,2023-04-30,2026-07-31,37,True
+VGELX,Vanguard Energy Opportunities Admiral,Sector-Energy,MUTUALFUND,2001-11-30,2026-07-31,297,True
+VGENX,Vanguard Energy Opportunities Investor,Sector-Energy,MUTUALFUND,1985-01-31,2026-07-31,499,True
+VGHAX,Vanguard Health Care Fund Admiral,Sector-Healthcare,MUTUALFUND,2001-11-30,2026-07-31,297,True
+VGHCX,Vanguard Health Care Fund Investor,Sector-Healthcare,MUTUALFUND,1985-01-31,2026-07-31,499,True
+FKUTX,Franklin Utilities A1,Sector-Utilities,MUTUALFUND,1985-01-31,2026-07-31,499,True
+FIPDX,Fidelity Inflation-Prot Bond Index,US Bonds,MUTUALFUND,2012-05-31,2026-07-31,171,True
+LTPZ,PIMCO 15+ Year U.S. TIPS ETF,US Bonds,ETF,2009-09-30,2026-07-31,203,True
+SCHP,Schwab U.S. TIPS ETF,US Bonds,ETF,2010-08-31,2026-07-31,192,True
+STIP,iShares 0-5 Year TIPS Bond ETF,US Bonds,ETF,2010-12-31,2026-07-31,188,True
+VAIPX,Vanguard Inflation-Protected Securities Adm,US Bonds,MUTUALFUND,2005-06-30,2026-07-31,254,True
+VBIIX,Vanguard Intermediate-Term Bond Index Inv,US Bonds,MUTUALFUND,1994-02-28,2026-07-31,390,True
+VBILX,Vanguard Intermediate-Term Bond Index Adm,US Bonds,MUTUALFUND,2001-11-30,2026-07-31,297,True
+VBIRX,Vanguard Short-Term Bond Index Adm,US Bonds,MUTUALFUND,2001-11-30,2026-07-31,297,True
+VBISX,Vanguard Short-Term Bond Index Inv,US Bonds,MUTUALFUND,1994-02-28,2026-07-31,390,True
+VBMFX,Vanguard Total Bond Market Index Inv,US Bonds,MUTUALFUND,1986-12-31,2026-07-31,476,True
+VBTLX,Vanguard Total Bond Market Index Adm,US Bonds,MUTUALFUND,2001-11-30,2026-07-31,297,True
+VIPSX,Vanguard Inflation-Protected Securities Inv,US Bonds,MUTUALFUND,2000-06-30,2026-07-31,314,True
+VTAPX,Vanguard Short-Term TIPS Idx Admiral,US Bonds,MUTUALFUND,2012-10-31,2026-07-31,166,True
+VTIP,Vanguard Short-Term TIPS ETF,US Bonds,ETF,2012-10-31,2026-07-31,166,True
+VTIPX,Vanguard Short-Term TIPS Idx Investor,US Bonds,MUTUALFUND,2012-10-31,2026-07-31,166,True
+FBNDX,Fidelity Investment Grade Bond Fund,US Corporate Bonds,MUTUALFUND,1985-01-31,2026-07-31,499,True
+PINCX,Putnam Income A,US Corporate Bonds,MUTUALFUND,1985-01-31,2026-07-31,499,True
+VCIT,Vanguard Intermediate-Term Corporate Bond ETF,US Corporate Bonds,ETF,2009-11-30,2026-07-31,201,True
+VFSTX,Vanguard Short-Term Investment Grade Inv,US Corporate Bonds,MUTUALFUND,1985-01-31,2026-07-31,499,True
+VFSUX,Vanguard Short-Term Investment Grade Adm,US Corporate Bonds,MUTUALFUND,2001-02-28,2026-07-31,306,True
+VICSX,Vanguard Intermediate-Term Corp Bond Idx Adm,US Corporate Bonds,MUTUALFUND,2009-11-30,2026-07-31,201,True
+VWEAX,Vanguard High-Yield Corporate Admiral,US Corporate Bonds,MUTUALFUND,2001-11-30,2026-07-31,297,True
+VWEHX,Vanguard High-Yield Corporate Investor,US Corporate Bonds,MUTUALFUND,1985-01-31,2026-07-31,499,True
+VWESX,Vanguard Long-Term Investment-Grade Inv,US Corporate Bonds,MUTUALFUND,1985-01-31,2026-07-31,499,True
+VWETX,Vanguard Long-Term Investment-Grade Adm,US Corporate Bonds,MUTUALFUND,2001-02-28,2026-07-31,306,True
+AIVSX,American Funds Invmt Co of Amer A,US Equity,MUTUALFUND,1986-01-31,2026-07-31,487,True
+AUBAX,Invesco Balanced Fund A,US Equity,MUTUALFUND,,,0,False
+BRSIX,Bridgeway Ultra-Small Company Market,US Equity,MUTUALFUND,1997-07-31,2026-07-31,349,True
+FFIDX,Fidelity Fund,US Equity,MUTUALFUND,1985-01-31,2026-07-31,499,True
+FMAGX,Fidelity Magellan Fund,US Equity,MUTUALFUND,1985-01-31,2026-07-31,499,True
+IVV,iShares Core S&P 500 ETF,US Equity,ETF,2000-05-31,2026-07-31,315,True
+IWC,iShares Micro-Cap ETF,US Equity,ETF,2005-08-31,2026-07-31,252,True
+LOMMX,CGM Mutual Fund,US Equity,MUTUALFUND,,,0,False
+MIGFX,MFS Massachusetts Inv Gr Stk A,US Equity,MUTUALFUND,1985-01-31,2026-07-31,499,True
+MITTX,MFS Massachusetts Investors Tr A,US Equity,MUTUALFUND,1985-01-31,2026-07-31,499,True
+MTUM,iShares MSCI USA Momentum Factor ETF,US Equity,ETF,2013-04-30,2026-07-31,160,True
+NAESX,Vanguard Small Cap Index Inv,US Equity,MUTUALFUND,1985-01-31,2026-07-31,499,True
+OTCFX,T. Rowe Price Small-Cap Stock,US Equity,MUTUALFUND,1985-01-31,2026-07-31,499,True
+PIODX,Victory Pioneer A,US Equity,MUTUALFUND,1985-01-31,2026-07-31,499,True
+PIORX,Victory Pioneer R,US Equity,MUTUALFUND,2003-03-31,2026-07-31,281,True
+QUAL,iShares MSCI USA Quality Factor ETF,US Equity,ETF,2013-07-31,2026-07-31,157,True
+TEPLX,Templeton Growth A,US Equity,MUTUALFUND,1986-01-31,2026-07-31,487,True
+USMV,iShares MSCI USA Min Vol Factor ETF,US Equity,ETF,2011-10-31,2026-07-31,178,True
+VDADX,Vanguard Dividend Appreciation Index Adm,US Equity,MUTUALFUND,2013-12-31,2026-07-31,152,True
+VEXAX,Vanguard Extended Market Index Adm,US Equity,MUTUALFUND,2000-11-30,2026-07-31,309,True
+VEXMX,Vanguard Extended Market Index Inv,US Equity,MUTUALFUND,1987-12-31,2026-07-31,464,True
+VEXPX,Vanguard Explorer Fund Investor,US Equity,MUTUALFUND,1985-01-31,2026-07-31,499,True
+VEXRX,Vanguard Explorer Fund Admiral,US Equity,MUTUALFUND,2001-11-30,2026-07-31,297,True
+VFIAX,Vanguard 500 Index Fund Admiral,US Equity,MUTUALFUND,2000-11-30,2026-07-31,309,True
+VFINX,Vanguard 500 Index Fund Investor,US Equity,MUTUALFUND,1985-01-31,2026-07-31,499,True
+VFTAX,Vanguard FTSE Social Index Fund Adm,US Equity,MUTUALFUND,2019-02-28,2026-07-31,90,True
+VHYAX,Vanguard High Dividend Yield Index Adm,US Equity,MUTUALFUND,2019-02-28,2026-07-31,90,True
+VICEX,USA Mutuals Vice Investor,US Equity,MUTUALFUND,2002-09-30,2026-07-31,287,True
+VIG,Vanguard Dividend Appreciation ETF,US Equity,ETF,2006-05-31,2026-07-31,243,True
+VIGAX,Vanguard Growth Index Admiral,US Equity,MUTUALFUND,2000-11-30,2026-07-31,309,True
+VIGRX,Vanguard Growth Index Investor,US Equity,MUTUALFUND,1992-10-31,2026-07-31,406,True
+VIMAX,Vanguard Mid Cap Index Admiral,US Equity,MUTUALFUND,2001-11-30,2026-07-31,297,True
+VIMSX,Vanguard Mid Cap Index Investor,US Equity,MUTUALFUND,1998-05-31,2026-07-31,339,True
+VISGX,Vanguard Small Cap Growth Index Inv,US Equity,MUTUALFUND,1998-05-31,2026-07-31,339,True
+VISVX,Vanguard Small Cap Value Index Inv,US Equity,MUTUALFUND,1998-05-31,2026-07-31,339,True
+VIVAX,Vanguard Value Index Inv,US Equity,MUTUALFUND,1992-10-31,2026-07-31,406,True
+VLUE,iShares MSCI USA Value Factor ETF,US Equity,ETF,2013-04-30,2026-07-31,160,True
+VMGIX,Vanguard Mid-Cap Growth Index Investor,US Equity,MUTUALFUND,2006-08-31,2026-07-31,240,True
+VMGMX,Vanguard Mid-Cap Growth Index Admiral,US Equity,MUTUALFUND,2011-09-30,2026-07-31,179,True
+VMVAX,Vanguard Mid-Cap Value Index Admiral,US Equity,MUTUALFUND,2011-09-30,2026-07-31,179,True
+VMVIX,Vanguard Mid-Cap Value Index Investor,US Equity,MUTUALFUND,2006-08-31,2026-07-31,240,True
+VSGAX,Vanguard Small Cap Growth Index Admiral,US Equity,MUTUALFUND,2011-09-30,2026-07-31,179,True
+VSIAX,Vanguard Small Cap Value Index Admiral,US Equity,MUTUALFUND,2011-09-30,2026-07-31,179,True
+VSMAX,Vanguard Small Cap Index Admiral,US Equity,MUTUALFUND,2000-11-30,2026-07-31,309,True
+VTSAX,Vanguard Total Stock Market Index Adm,US Equity,MUTUALFUND,2000-11-30,2026-07-31,309,True
+VTSMX,Vanguard Total Stock Market Index Inv,US Equity,MUTUALFUND,1992-04-30,2026-07-31,412,True
+VVIAX,Vanguard Value Index Admiral,US Equity,MUTUALFUND,2000-11-30,2026-07-31,309,True
+VWELX,Vanguard Wellington Fund Investor,US Equity,MUTUALFUND,1985-01-31,2026-07-31,499,True
+VWENX,Vanguard Wellington Fund Admiral,US Equity,MUTUALFUND,2001-05-31,2026-07-31,303,True
+VWIAX,Vanguard Wellesley Income Admiral,US Equity,MUTUALFUND,2001-05-31,2026-07-31,303,True
+VWINX,Vanguard Wellesley Income Investor,US Equity,MUTUALFUND,1985-01-31,2026-07-31,499,True
+VWNAX,Vanguard Windsor II Admiral,US Equity,MUTUALFUND,2001-05-31,2026-07-31,303,True
+VWNDX,Vanguard Windsor Fund Investor,US Equity,MUTUALFUND,1985-01-31,2026-07-31,499,True
+VWNEX,Vanguard Windsor Fund Admiral,US Equity,MUTUALFUND,2001-11-30,2026-07-31,297,True
+VWNFX,Vanguard Windsor II Investor,US Equity,MUTUALFUND,1985-06-30,2026-07-31,494,True
+VYM,Vanguard High Dividend Yield ETF,US Equity,ETF,2006-11-30,2026-07-31,237,True
+VWITX,Vanguard Intermediate-Term Tax-Exempt Inv,US Municipal Bonds,MUTUALFUND,1985-01-31,2026-07-31,499,True
+VWIUX,Vanguard Intermediate-Term Tax-Exempt Adm,US Municipal Bonds,MUTUALFUND,2001-02-28,2026-07-31,306,True
+VWLTX,Vanguard Long-Term Tax-Exempt Inv,US Municipal Bonds,MUTUALFUND,1985-01-31,2026-07-31,499,True
+VWLUX,Vanguard Long-Term Tax-Exempt Adm,US Municipal Bonds,MUTUALFUND,2001-02-28,2026-07-31,306,True
+VWSTX,Vanguard Ultra Short-Term Tax-Exempt Inv,US Municipal Bonds,MUTUALFUND,1985-01-31,2026-07-31,499,True
+VWSUX,Vanguard Ultra Short-Term Tax-Exempt Adm,US Municipal Bonds,MUTUALFUND,2001-02-28,2026-07-31,306,True
+VGSIX,Vanguard Real Estate Index Investor,US REIT,MUTUALFUND,1996-05-31,2026-07-31,363,True
+VGSLX,Vanguard Real Estate Index Admiral,US REIT,MUTUALFUND,2001-11-30,2026-07-31,297,True
+EDV,Vanguard Extended Duration Treasury ETF,US Treasuries,ETF,2008-01-31,2026-07-31,223,True
+VFIRX,Vanguard Short-Term Treasury Fund Adm,US Treasuries,MUTUALFUND,2001-02-28,2026-07-31,306,True
+VFISX,Vanguard Short-Term Treasury Fund Inv,US Treasuries,MUTUALFUND,1991-10-31,2026-07-31,418,True
+VFITX,Vanguard Intermediate-Term Treasury Inv,US Treasuries,MUTUALFUND,1991-10-31,2026-07-31,418,True
+VFIUX,Vanguard Intermediate-Term Treasury Adm,US Treasuries,MUTUALFUND,2001-02-28,2026-07-31,306,True
+VGIT,Vanguard Intermediate-Term Treasury ETF,US Treasuries,ETF,2009-11-30,2026-07-31,201,True
+VGLT,Vanguard Long-Term Treasury ETF,US Treasuries,ETF,2010-01-31,2026-07-31,199,True
+VGSH,Vanguard Short-Term Treasury ETF,US Treasuries,ETF,2009-11-30,2026-07-31,201,True
+VLGSX,Vanguard Long-Term Treasury Index Adm,US Treasuries,MUTUALFUND,2009-11-30,2026-07-31,201,True
+VSBSX,Vanguard Short-Term Treasury Index Adm,US Treasuries,MUTUALFUND,2009-11-30,2026-07-31,201,True
+VSIGX,Vanguard Intermediate-Term Treasury Index Adm,US Treasuries,MUTUALFUND,2009-11-30,2026-07-31,201,True
+VUSTX,Vanguard Long-Term Treasury Inv,US Treasuries,MUTUALFUND,1986-05-31,2026-07-31,483,True
+VUSUX,Vanguard Long-Term Treasury Admiral,US Treasuries,MUTUALFUND,2001-02-28,2026-07-31,306,True
+OPPAX,Invesco Global Fund A,World Equity,MUTUALFUND,1985-01-31,2026-07-31,499,True
+VGPMX,Vanguard Global Capital Cycles Investor,World Equity,MUTUALFUND,1985-01-31,2026-07-31,499,True
+VT,Vanguard Total World Stock ETF,World Equity,ETF,2008-06-30,2026-07-31,218,True
+VTWAX,Vanguard Total World Stock Index Admiral,World Equity,MUTUALFUND,2019-02-28,2026-07-31,90,True
 AAPL,AAPL common stock,Equity (single stock),Technology,1985-01-31,2026-07-31,499,True
 MSFT,MSFT common stock,Equity (single stock),Technology,1986-03-31,2026-07-31,485,True
 NVDA,NVDA common stock,Equity (single stock),Technology,1999-01-31,2026-07-31,331,True
@@ -58,12 +228,18 @@ TXN,TXN common stock,Equity (single stock),Technology,1985-01-31,2026-07-31,499,
 IBM,IBM common stock,Equity (single stock),Technology,1962-01-31,2026-07-31,775,True
 NOW,NOW common stock,Equity (single stock),Technology,2012-06-30,2026-07-31,170,True
 INTU,INTU common stock,Equity (single stock),Technology,1993-03-31,2026-07-31,401,True
+UBER,UBER common stock,Equity (single stock),Technology,2019-05-31,2026-07-31,87,True
+PANW,PANW common stock,Equity (single stock),Technology,2012-07-31,2026-07-31,169,True
+SNOW,SNOW common stock,Equity (single stock),Technology,2020-09-30,2026-07-31,71,True
+MU,MU common stock,Equity (single stock),Technology,1985-01-31,2026-07-31,499,True
 GOOGL,GOOGL common stock,Equity (single stock),Communication Srv,2004-08-31,2026-07-31,264,True
 META,META common stock,Equity (single stock),Communication Srv,2012-05-31,2026-07-31,171,True
 VZ,VZ common stock,Equity (single stock),Communication Srv,1985-01-31,2026-07-31,499,True
 TMUS,TMUS common stock,Equity (single stock),Communication Srv,2007-04-30,2026-07-31,232,True
 CMCSA,CMCSA common stock,Equity (single stock),Communication Srv,1980-03-31,2026-07-31,557,True
 T,T common stock,Equity (single stock),Communication Srv,1983-11-30,2026-07-31,513,True
+NFLX,NFLX common stock,Equity (single stock),Communication Srv,2002-05-31,2026-07-31,291,True
+DIS,DIS common stock,Equity (single stock),Communication Srv,1985-01-31,2026-07-31,499,True
 AMZN,AMZN common stock,Equity (single stock),Consumer Discretionary,1997-05-31,2026-07-31,351,True
 TSLA,TSLA common stock,Equity (single stock),Consumer Discretionary,2010-06-30,2026-07-31,194,True
 HD,HD common stock,Equity (single stock),Consumer Discretionary,1985-01-31,2026-07-31,499,True
@@ -74,6 +250,8 @@ LOW,LOW common stock,Equity (single stock),Consumer Discretionary,1985-01-31,202
 BKNG,BKNG common stock,Equity (single stock),Consumer Discretionary,1999-03-31,2026-07-31,329,True
 F,F common stock,Equity (single stock),Consumer Discretionary,1985-01-31,2026-07-31,499,True
 GM,GM common stock,Equity (single stock),Consumer Discretionary,2010-11-30,2026-07-31,189,True
+MAR,MAR common stock,Equity (single stock),Consumer Discretionary,1998-03-31,2026-07-31,341,True
+TJX,TJX common stock,Equity (single stock),Consumer Discretionary,1987-06-30,2026-07-31,470,True
 WMT,WMT common stock,Equity (single stock),Consumer Staples,1972-08-31,2026-07-31,648,True
 KO,KO common stock,Equity (single stock),Consumer Staples,1985-01-31,2026-07-31,499,True
 PEP,PEP common stock,Equity (single stock),Consumer Staples,1985-01-31,2026-07-31,499,True
@@ -82,6 +260,9 @@ COST,COST common stock,Equity (single stock),Consumer Staples,1986-07-31,2026-07
 MDLZ,MDLZ common stock,Equity (single stock),Consumer Staples,2001-06-30,2026-07-31,302,True
 CL,CL common stock,Equity (single stock),Consumer Staples,1985-01-31,2026-07-31,499,True
 TGT,TGT common stock,Equity (single stock),Consumer Staples,1985-01-31,2026-07-31,499,True
+PM,PM common stock,Equity (single stock),Consumer Staples,2008-03-31,2026-07-31,221,True
+MO,MO common stock,Equity (single stock),Consumer Staples,1985-01-31,2026-07-31,499,True
+EL,EL common stock,Equity (single stock),Consumer Staples,1995-11-30,2026-07-31,369,True
 JNJ,JNJ common stock,Equity (single stock),Healthcare,1985-01-31,2026-07-31,499,True
 UNH,UNH common stock,Equity (single stock),Healthcare,1985-01-31,2026-07-31,499,True
 LLY,LLY common stock,Equity (single stock),Healthcare,1985-01-31,2026-07-31,499,True
@@ -92,6 +273,10 @@ TMO,TMO common stock,Equity (single stock),Healthcare,1985-01-31,2026-07-31,499,
 ABT,ABT common stock,Equity (single stock),Healthcare,1985-01-31,2026-07-31,499,True
 DHR,DHR common stock,Equity (single stock),Healthcare,1978-12-31,2026-07-31,572,True
 BMY,BMY common stock,Equity (single stock),Healthcare,1985-01-31,2026-07-31,499,True
+ISRG,ISRG common stock,Equity (single stock),Healthcare,2000-06-30,2026-07-31,314,True
+ELV,ELV common stock,Equity (single stock),Healthcare,2001-10-31,2026-07-31,298,True
+CI,CI common stock,Equity (single stock),Healthcare,1985-01-31,2026-07-31,499,True
+CVS,CVS common stock,Equity (single stock),Healthcare,1985-01-31,2026-07-31,499,True
 JPM,JPM common stock,Equity (single stock),Financials,1985-01-31,2026-07-31,499,True
 BAC,BAC common stock,Equity (single stock),Financials,1985-01-31,2026-07-31,499,True
 WFC,WFC common stock,Equity (single stock),Financials,1985-01-31,2026-07-31,499,True
@@ -103,6 +288,12 @@ MA,MA common stock,Equity (single stock),Financials,2006-05-31,2026-07-31,243,Tr
 AXP,AXP common stock,Equity (single stock),Financials,1985-01-31,2026-07-31,499,True
 SCHW,SCHW common stock,Equity (single stock),Financials,1987-09-30,2026-07-31,467,True
 CB,CB common stock,Equity (single stock),Financials,1993-03-31,2026-07-31,401,True
+BRK-B,BRK-B common stock,Equity (single stock),Financials,1996-05-31,2026-07-31,363,True
+SPGI,SPGI common stock,Equity (single stock),Financials,1973-02-28,2026-07-31,642,True
+C,C common stock,Equity (single stock),Financials,1985-01-31,2026-07-31,499,True
+USB,USB common stock,Equity (single stock),Financials,1985-01-31,2026-07-31,499,True
+PNC,PNC common stock,Equity (single stock),Financials,1985-01-31,2026-07-31,499,True
+AIG,AIG common stock,Equity (single stock),Financials,1985-01-31,2026-07-31,499,True
 BA,BA common stock,Equity (single stock),Industrials,1985-01-31,2026-07-31,499,True
 CAT,CAT common stock,Equity (single stock),Industrials,1985-01-31,2026-07-31,499,True
 GE,GE common stock,Equity (single stock),Industrials,1962-01-31,2026-07-31,775,True
@@ -112,6 +303,12 @@ UNP,UNP common stock,Equity (single stock),Industrials,1985-01-31,2026-07-31,499
 RTX,RTX common stock,Equity (single stock),Industrials,1985-01-31,2026-07-31,499,True
 DE,DE common stock,Equity (single stock),Industrials,1985-01-31,2026-07-31,499,True
 LMT,LMT common stock,Equity (single stock),Industrials,1985-01-31,2026-07-31,499,True
+ADP,ADP common stock,Equity (single stock),Industrials,1985-01-31,2026-07-31,499,True
+ITW,ITW common stock,Equity (single stock),Industrials,1985-01-31,2026-07-31,499,True
+FDX,FDX common stock,Equity (single stock),Industrials,1978-04-30,2026-07-31,580,True
+NSC,NSC common stock,Equity (single stock),Industrials,1985-01-31,2026-07-31,499,True
+WM,WM common stock,Equity (single stock),Industrials,1988-06-30,2026-07-31,458,True
+LHX,LHX common stock,Equity (single stock),Industrials,1985-01-31,2026-07-31,499,True
 XOM,XOM common stock,Equity (single stock),Energy,1985-01-31,2026-07-31,499,True
 CVX,CVX common stock,Equity (single stock),Energy,1985-01-31,2026-07-31,499,True
 COP,COP common stock,Equity (single stock),Energy,1985-01-31,2026-07-31,499,True
@@ -119,19 +316,28 @@ SLB,SLB common stock,Equity (single stock),Energy,1985-01-31,2026-07-31,499,True
 EOG,EOG common stock,Equity (single stock),Energy,1989-10-31,2026-07-31,442,True
 PSX,PSX common stock,Equity (single stock),Energy,2012-04-30,2026-07-31,172,True
 MPC,MPC common stock,Equity (single stock),Energy,2011-06-30,2026-07-31,182,True
+KMI,KMI common stock,Equity (single stock),Energy,2011-02-28,2026-07-31,186,True
+WMB,WMB common stock,Equity (single stock),Energy,1985-01-31,2026-07-31,499,True
+OXY,OXY common stock,Equity (single stock),Energy,1985-01-31,2026-07-31,499,True
 LIN,LIN common stock,Equity (single stock),Materials,1992-06-30,2026-07-31,410,True
 APD,APD common stock,Equity (single stock),Materials,1985-01-31,2026-07-31,499,True
 NEM,NEM common stock,Equity (single stock),Materials,1985-01-31,2026-07-31,499,True
 FCX,FCX common stock,Equity (single stock),Materials,1995-07-31,2026-07-31,373,True
 DOW,DOW common stock,Equity (single stock),Materials,2019-03-31,2026-07-31,89,True
+CTVA,CTVA common stock,Equity (single stock),Materials,2019-05-31,2026-07-31,87,True
+ECL,ECL common stock,Equity (single stock),Materials,1985-01-31,2026-07-31,499,True
 NEE,NEE common stock,Equity (single stock),Utilities,1985-01-31,2026-07-31,499,True
 DUK,DUK common stock,Equity (single stock),Utilities,1985-01-31,2026-07-31,499,True
 SO,SO common stock,Equity (single stock),Utilities,1985-01-31,2026-07-31,499,True
 AEP,AEP common stock,Equity (single stock),Utilities,1985-01-31,2026-07-31,499,True
 EXC,EXC common stock,Equity (single stock),Utilities,1973-05-31,2026-07-31,639,True
+SRE,SRE common stock,Equity (single stock),Utilities,1998-06-30,2026-07-31,338,True
+D,D common stock,Equity (single stock),Utilities,1985-01-31,2026-07-31,499,True
 PLD,PLD common stock,Equity (single stock),Real Estate,1997-11-30,2026-07-31,345,True
 AMT,AMT common stock,Equity (single stock),Real Estate,1998-02-28,2026-07-31,342,True
 CCI,CCI common stock,Equity (single stock),Real Estate,1998-08-31,2026-07-31,336,True
 EQIX,EQIX common stock,Equity (single stock),Real Estate,2000-08-31,2026-07-31,312,True
 SPG,SPG common stock,Equity (single stock),Real Estate,1993-12-31,2026-07-31,392,True
 PSA,PSA common stock,Equity (single stock),Real Estate,1985-01-31,2026-07-31,499,True
+WELL,WELL common stock,Equity (single stock),Real Estate,1985-01-31,2026-07-31,499,True
+O,O common stock,Equity (single stock),Real Estate,1994-10-31,2026-07-31,382,True

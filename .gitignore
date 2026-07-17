@@ -1,0 +1,9 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Large generated CSVs — parquet equivalents hold the same data at ~1/20th the size.
+# Re-generate any time with:  .venv/bin/python pull_daily.py  (or pull_returns.py)
+output/daily_returns_by_ticker.csv
+output/daily_prices.csv

@@ -24,7 +24,61 @@ import yfinance as yf
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
 os.makedirs(OUT, exist_ok=True)
 
+# ---------------------------------------------------------------------------
+# Rate-limit / network resilience configuration
+# Yahoo will 401/429 or silently empty responses if hit too hard.
+# ---------------------------------------------------------------------------
 yf.set_tz_cache_location(os.path.join(OUT, "_yf_tz_cache"))
+try:
+    yf.config.network.retries = 5          # exponential backoff: 1s,2s,4s,8s,16s
+except Exception:
+    pass  # older yfinance versions
+DOWNLOAD_BATCH_SIZE = 50                   # tickers per yf.download() call
+INTER_BATCH_SLEEP_S = 3.0                  # pause between batches
+
+
+def _download_batched(tickers, interval, period="max"):
+    """Download history in chunks to respect Yahoo rate limits.
+    Returns a wide DataFrame indexed by date, one column per ticker."""
+    chunks = [tickers[i:i+DOWNLOAD_BATCH_SIZE] for i in range(0, len(tickers), DOWNLOAD_BATCH_SIZE)]
+    print(f"\nDownloading {len(tickers)} tickers in {len(chunks)} batches "
+          f"(batch={DOWNLOAD_BATCH_SIZE}, sleep={INTER_BATCH_SLEEP_S}s, retries={getattr(yf.config,'network',None) and getattr(yf.config.network,'retries','?')}) ...", flush=True)
+    frames = []
+    for i, chunk in enumerate(chunks, 1):
+        t0 = time.time()
+        data = yf.download(
+            tickers=chunk,
+            period=period,
+            interval=interval,
+            auto_adjust=True,
+            actions=False,
+            group_by="column",
+            threads=True,
+            progress=False,
+            ignore_tz=True,
+            timeout=60,
+        )
+        elapsed = time.time() - t0
+        if isinstance(data.columns, pd.MultiIndex):
+            close = data["Close"].copy()
+        else:
+            close = data.to_frame(name=chunk[0]) if data.ndim == 1 else data.copy()
+        close.index = pd.to_datetime(close.index)
+        # normalize to month-end for monthly, else keep as-is
+        if interval == "1mo":
+            close.index = close.index.to_period("M").to_timestamp("M")
+        close = close.sort_index()
+        frames.append(close)
+        n_cols = len(close.columns)
+        print(f"  batch {i}/{len(chunks)}: {len(chunk)} tk -> {n_cols} cols, {len(close)} rows ({elapsed:.0f}s)", flush=True)
+        if i < len(chunks):
+            time.sleep(INTER_BATCH_SLEEP_S)
+    if not frames:
+        raise SystemExit("All batches returned empty")
+    # Outer-join on date index so tickers with different histories align
+    merged = pd.concat(frames, axis=1).sort_index()
+    merged = merged.loc[~merged.index.duplicated(keep="first")]
+    return merged
 
 # ---------------------------------------------------------------------------
 # 1. ASSET-CLASS UNIVERSE
@@ -82,8 +136,212 @@ ASSET_TICKERS = {
     "XLU":    ("Utilities Select Sector SPDR", "Sector-Utilities",    "ETF",     "utilities; since 1998"),
     "XLRE":   ("Real Estate Select Sector SPDR","Sector-Real Estate", "ETF",     "real estate sector; since 2015"),
     "XLC":    ("Communication Services SPDR",  "Sector-Comm Services","ETF",     "comm services; since 2018"),
+    # ---- Cryptocurrency / Digital Assets ----
+    "GBTC":   ("Grayscale Bitcoin Trust",        "Digital Assets",       "ETF",     "bitcoin trust; since 2015"),
+    "IBIT":   ("iShares Bitcoin Trust ETF",      "Digital Assets",       "ETF",     "spot bitcoin; since 2024"),
+    "BITO":   ("ProShares Bitcoin Strategy ETF", "Digital Assets",       "ETF",     "bitcoin futures; since 2021"),
+    # ---- Small/Mid Cap (deeper US equity coverage) ----
+    "IJH":    ("iShares Core S&P Mid-Cap ETF",   "US Equity",            "ETF",     "mid cap; since 2000"),
+    "MDY":    ("SPDR S&P MidCap 400 ETF",        "US Equity",            "ETF",     "mid cap; since 1995"),
+    "VO":     ("Vanguard Mid-Cap ETF",            "US Equity",            "ETF",     "mid cap blend; since 2004"),
+    "IJS":    ("iShares S&P SmallCap 600 Value", "US Equity",            "ETF",     "small cap value; since 2000"),
+    "IJT":    ("iShares S&P SmallCap 600 Growth","US Equity",            "ETF",     "small cap growth; since 2000"),
+    "VBR":    ("Vanguard Small-Cap Value ETF",   "US Equity",            "ETF",     "small cap value; since 2004"),
+    "VB":     ("Vanguard Small-Cap ETF",         "US Equity",            "ETF",     "small cap blend; since 2004"),
+    # ---- International detail ----
+    "VGK":    ("Vanguard FTSE Europe ETF",       "International Equity", "ETF",     "developed Europe; since 2005"),
+    "VPL":    ("Vanguard FTSE Pacific ETF",      "International Equity", "ETF",     "developed Pacific; since 2005"),
+    "FXI":    ("iShares China Large-Cap ETF",    "International Equity", "ETF",     "china large cap; since 2004"),
+    # ---- EM Bonds ----
+    "EMB":    ("iShares EM USD Bond ETF",        "EM Bonds",             "ETF",     "emerging market USD bonds; since 2007"),
+    # ---- Currency ----
+    "UUP":    ("Invesco DB US Dollar Bullish",   "Currency",             "ETF",     "long USD vs basket; since 2007"),
+    # ---- More Treasuries ----
+    "^FVX":   ("CBOE 5yr Treasury Yield",        "US Treasuries",        "YIELD",   "5yr treasury yield; back to ~1985"),
+    "^TYX":   ("CBOE 30yr Treasury Yield",       "US Treasuries",        "YIELD",   "30yr treasury yield; back to ~1985"),
+    # ---- Preferred / Convertibles ----
+    "PFF":    ("iShares Preferred ETF",          "Preferred Stock",      "ETF",     "preferred stock; since 2007"),
+    # ---- Commodities / Natural resources ----
+    "USO":    ("United States Oil Fund",          "Commodities",          "ETF",     "WTI crude oil; since 2006"),
+    # ---- Sector: Biotech ----
+    "IBB":    ("iShares Biotechnology ETF",      "Sector-Biotech",       "ETF",     "biotech; since 2001"),
+    "XBI":    ("SPDR S&P Biotech ETF",           "Sector-Biotech",       "ETF",     "biotech equal-weight; since 2006"),
+    # ---- Sector: Semiconductors ----
+    "SMH":    ("VanEck Semiconductor ETF",       "Sector-Semiconductors","ETF",     "semiconductors; since 2000"),
+    "SOXX":   ("iShares Semiconductor ETF",      "Sector-Semiconductors","ETF",     "semiconductors; since 2001"),
+    # ---- Sector: Homebuilders ----
+    "XHB":    ("SPDR S&P Homebuilders ETF",      "Sector-Homebuilders","ETF",     "homebuilders; since 2006"),
+    # ---- Sector: Regional Banks ----
+    "KRE":    ("SPDR S&P Regional Banking ETF",  "Sector-Financials",   "ETF",     "regional banks; since 2006"),
+    # ---- Sector: Clean Energy ----
+    "ICLN":   ("iShares Global Clean Energy ETF","Sector-Clean Energy", "ETF",     "clean energy; since 2008"),
+    # ---- Dividends ----
+    "NOBL":   ("ProShares Dividend Aristocrats",  "US Equity",            "ETF",     "dividend aristocrats; since 2013"),
     # ---- Alternatives / risk ----
     "^VIX":   ("CBOE Volatility Index",        "Volatility",           "INDEX",   "VIX level; since 1990"),
+    # ====================================================================
+    # MUTUAL FUNDS & ADDITIONAL ETFs (from user-provided list)
+    # Adds Vanguard mutual funds, iShares ETFs, Fidelity/PIMCO/etc funds.
+    # Yahoo provides daily history back to fund inception for most of these.
+    # ====================================================================
+    # Commodities (1)
+    "PCRIX":  ("PIMCO Commodity Real Ret Strat Instl", "Commodities", "MUTUALFUND", "commodity real return strategy"),
+    # Gold/Precious Metals (3)
+    "ASA":    ("ASA Gold and Precious Metals Ltd", "Gold/Precious Metals", "STOCK", "closed-end gold and precious metals"),
+    "FSAGX":  ("Fidelity Select Gold", "Gold/Precious Metals", "MUTUALFUND", "gold sector fund"),
+    "INIVX":  ("VanEck International Investors Gold A", "Gold/Precious Metals", "MUTUALFUND", "gold mining equity"),
+    # International Bonds (7)
+    "BNDW":   ("Vanguard Total World Bond ETF", "International Bonds", "ETF", "global bond USD hedged"),
+    "IGOV":   ("iShares International Treasury Bond ETF", "International Bonds", "ETF", "intl govt bonds"),
+    "PADMX":  ("PIMCO Global Bond Fund Unhedged", "International Bonds", "MUTUALFUND", "global bond unhedged"),
+    "PAGPX":  ("PIMCO Global Bond Fund Unhedged Adm", "International Bonds", "MUTUALFUND", "global bond unhedged"),
+    "PIGLX":  ("PIMCO Global Bond Fund Unhedged Instl", "International Bonds", "MUTUALFUND", "global bond unhedged"),
+    "VTABX":  ("Vanguard Total Intl Bond Idx Admiral", "International Bonds", "MUTUALFUND", "intl bond index admiral"),
+    "VTIBX":  ("Vanguard Total Intl Bond Idx Investor", "International Bonds", "MUTUALFUND", "intl bond index investor"),
+    # International Equity (18)
+    "DISV":   ("Dimensional Intl Small Cap Value ETF", "International Equity", "ETF", "intl small cap value"),
+    "DISVX":  ("DFA International Small Cap Value Portfolio", "International Equity", "MUTUALFUND", "intl small cap value"),
+    "EFV":    ("iShares MSCI EAFE Value ETF", "International Equity", "ETF", "developed ex-US value"),
+    "ISVL":   ("iShares Intl Developed Small Cap Value", "International Equity", "ETF", "intl developed small cap value"),
+    "VDVIX":  ("Vanguard Developed Markets Index Fund", "International Equity", "MUTUALFUND", "developed ex-US"),
+    "VEIEX":  ("Vanguard Emerging Markets Stock Index Inv", "International Equity", "MUTUALFUND", "emerging markets"),
+    "VEMAX":  ("Vanguard Emerging Markets Stock Index Adm", "International Equity", "MUTUALFUND", "emerging markets"),
+    "VEURX":  ("Vanguard FTSE Europe ETF", "International Equity", "MUTUALFUND", "developed Europe"),
+    "VEUSX":  ("Vanguard FTSE Europe ETF Adm", "International Equity", "MUTUALFUND", "developed Europe"),
+    "VFSAX":  ("Vanguard FTSE All-World ex-US Small Cap", "International Equity", "MUTUALFUND", "ex-US small cap"),
+    "VGTSX":  ("Vanguard Total Intl Stock Index Inv", "International Equity", "MUTUALFUND", "total intl stock"),
+    "VINEX":  ("Vanguard International Explorer Inv", "International Equity", "MUTUALFUND", "intl explorer"),
+    "VPACX":  ("Vanguard Pacific Stock Index Investor", "International Equity", "MUTUALFUND", "Pacific developed"),
+    "VPADX":  ("Vanguard Pacific Stock Index Admiral", "International Equity", "MUTUALFUND", "Pacific developed"),
+    "VSS":    ("Vanguard FTSE All-World ex-US Small-Cap ETF", "International Equity", "ETF", "ex-US small cap"),
+    "VTIAX":  ("Vanguard Total Intl Stock Index Admiral", "International Equity", "MUTUALFUND", "total intl stock"),
+    "VTMGX":  ("Vanguard Developed Markets Index Admiral", "International Equity", "MUTUALFUND", "developed ex-US"),
+    "VTRIX":  ("Vanguard International Value Inv", "International Equity", "MUTUALFUND", "intl value"),
+    # Money Market (3)
+    "SPAXX":  ("Fidelity Government Money Market", "Money Market", "MONEYMARKET", "govt money market"),
+    "VMRXX":  ("Vanguard Cash Reserves Money Market", "Money Market", "MONEYMARKET", "cash reserves"),
+    "VUSXX":  ("Vanguard Treasury Money Market", "Money Market", "MONEYMARKET", "treasury money market"),
+    # Sector-Energy (2)
+    "VGELX":  ("Vanguard Energy Opportunities Admiral", "Sector-Energy", "MUTUALFUND", "energy sector"),
+    "VGENX":  ("Vanguard Energy Opportunities Investor", "Sector-Energy", "MUTUALFUND", "energy sector"),
+    # Sector-Healthcare (2)
+    "VGHAX":  ("Vanguard Health Care Fund Admiral", "Sector-Healthcare", "MUTUALFUND", "healthcare sector"),
+    "VGHCX":  ("Vanguard Health Care Fund Investor", "Sector-Healthcare", "MUTUALFUND", "healthcare sector"),
+    # Sector-Utilities (1)
+    "FKUTX":  ("Franklin Utilities A1", "Sector-Utilities", "MUTUALFUND", "utilities sector"),
+    # US Bonds (15)
+    "FIPDX":  ("Fidelity Inflation-Prot Bond Index", "US Bonds", "MUTUALFUND", "TIPS index"),
+    "LTPZ":   ("PIMCO 15+ Year U.S. TIPS ETF", "US Bonds", "ETF", "long-term TIPS"),
+    "SCHP":   ("Schwab U.S. TIPS ETF", "US Bonds", "ETF", "TIPS"),
+    "STIP":   ("iShares 0-5 Year TIPS Bond ETF", "US Bonds", "ETF", "short-term TIPS"),
+    "VAIPX":  ("Vanguard Inflation-Protected Securities Adm", "US Bonds", "MUTUALFUND", "TIPS admiral"),
+    "VBIIX":  ("Vanguard Intermediate-Term Bond Index Inv", "US Bonds", "MUTUALFUND", "intermediate bond index"),
+    "VBILX":  ("Vanguard Intermediate-Term Bond Index Adm", "US Bonds", "MUTUALFUND", "intermediate bond index"),
+    "VBIRX":  ("Vanguard Short-Term Bond Index Adm", "US Bonds", "MUTUALFUND", "short-term bond index"),
+    "VBISX":  ("Vanguard Short-Term Bond Index Inv", "US Bonds", "MUTUALFUND", "short-term bond index"),
+    "VBMFX":  ("Vanguard Total Bond Market Index Inv", "US Bonds", "MUTUALFUND", "total bond market"),
+    "VBTLX":  ("Vanguard Total Bond Market Index Adm", "US Bonds", "MUTUALFUND", "total bond market"),
+    "VIPSX":  ("Vanguard Inflation-Protected Securities Inv", "US Bonds", "MUTUALFUND", "TIPS investor"),
+    "VTAPX":  ("Vanguard Short-Term TIPS Idx Admiral", "US Bonds", "MUTUALFUND", "short-term TIPS admiral"),
+    "VTIP":   ("Vanguard Short-Term TIPS ETF", "US Bonds", "ETF", "short-term TIPS"),
+    "VTIPX":  ("Vanguard Short-Term TIPS Idx Investor", "US Bonds", "MUTUALFUND", "short-term TIPS investor"),
+    # US Corporate Bonds (10)
+    "FBNDX":  ("Fidelity Investment Grade Bond Fund", "US Corporate Bonds", "MUTUALFUND", "investment grade"),
+    "PINCX":  ("Putnam Income A", "US Corporate Bonds", "MUTUALFUND", "income fund"),
+    "VCIT":   ("Vanguard Intermediate-Term Corporate Bond ETF", "US Corporate Bonds", "ETF", "intermediate corp"),
+    "VFSTX":  ("Vanguard Short-Term Investment Grade Inv", "US Corporate Bonds", "MUTUALFUND", "short-term IG"),
+    "VFSUX":  ("Vanguard Short-Term Investment Grade Adm", "US Corporate Bonds", "MUTUALFUND", "short-term IG"),
+    "VICSX":  ("Vanguard Intermediate-Term Corp Bond Idx Adm", "US Corporate Bonds", "MUTUALFUND", "intermediate corp"),
+    "VWEAX":  ("Vanguard High-Yield Corporate Admiral", "US Corporate Bonds", "MUTUALFUND", "high yield"),
+    "VWEHX":  ("Vanguard High-Yield Corporate Investor", "US Corporate Bonds", "MUTUALFUND", "high yield"),
+    "VWESX":  ("Vanguard Long-Term Investment-Grade Inv", "US Corporate Bonds", "MUTUALFUND", "long-term IG"),
+    "VWETX":  ("Vanguard Long-Term Investment-Grade Adm", "US Corporate Bonds", "MUTUALFUND", "long-term IG"),
+    # US Equity (56)
+    "AIVSX":  ("American Funds Invmt Co of Amer A", "US Equity", "MUTUALFUND", "large cap value"),
+    "AUBAX":  ("Invesco Balanced Fund A", "US Equity", "MUTUALFUND", "balanced"),
+    "BRSIX":  ("Bridgeway Ultra-Small Company Market", "US Equity", "MUTUALFUND", "micro cap"),
+    "FFIDX":  ("Fidelity Fund", "US Equity", "MUTUALFUND", "large cap blend"),
+    "FMAGX":  ("Fidelity Magellan Fund", "US Equity", "MUTUALFUND", "large cap growth"),
+    "IVV":    ("iShares Core S&P 500 ETF", "US Equity", "ETF", "S&P 500"),
+    "IWC":    ("iShares Micro-Cap ETF", "US Equity", "ETF", "micro cap"),
+    "LOMMX":  ("CGM Mutual Fund", "US Equity", "MUTUALFUND", "flexible"),
+    "MIGFX":  ("MFS Massachusetts Inv Gr Stk A", "US Equity", "MUTUALFUND", "large cap growth"),
+    "MITTX":  ("MFS Massachusetts Investors Tr A", "US Equity", "MUTUALFUND", "large cap blend"),
+    "MTUM":   ("iShares MSCI USA Momentum Factor ETF", "US Equity", "ETF", "momentum factor"),
+    "NAESX":  ("Vanguard Small Cap Index Inv", "US Equity", "MUTUALFUND", "small cap blend"),
+    "OTCFX":  ("T. Rowe Price Small-Cap Stock", "US Equity", "MUTUALFUND", "small cap"),
+    "PIODX":  ("Victory Pioneer A", "US Equity", "MUTUALFUND", "balanced"),
+    "PIORX":  ("Victory Pioneer R", "US Equity", "MUTUALFUND", "balanced"),
+    "QUAL":   ("iShares MSCI USA Quality Factor ETF", "US Equity", "ETF", "quality factor"),
+    "TEPLX":  ("Templeton Growth A", "US Equity", "MUTUALFUND", "growth"),
+    "USMV":   ("iShares MSCI USA Min Vol Factor ETF", "US Equity", "ETF", "min volatility factor"),
+    "VDADX":  ("Vanguard Dividend Appreciation Index Adm", "US Equity", "MUTUALFUND", "dividend growth"),
+    "VEXAX":  ("Vanguard Extended Market Index Adm", "US Equity", "MUTUALFUND", "extended market (ex-S&P500)"),
+    "VEXMX":  ("Vanguard Extended Market Index Inv", "US Equity", "MUTUALFUND", "extended market (ex-S&P500)"),
+    "VEXPX":  ("Vanguard Explorer Fund Investor", "US Equity", "MUTUALFUND", "mid cap growth"),
+    "VEXRX":  ("Vanguard Explorer Fund Admiral", "US Equity", "MUTUALFUND", "mid cap growth"),
+    "VFIAX":  ("Vanguard 500 Index Fund Admiral", "US Equity", "MUTUALFUND", "S&P 500"),
+    "VFINX":  ("Vanguard 500 Index Fund Investor", "US Equity", "MUTUALFUND", "S&P 500"),
+    "VFTAX":  ("Vanguard FTSE Social Index Fund Adm", "US Equity", "MUTUALFUND", "ESG/socially responsible"),
+    "VHYAX":  ("Vanguard High Dividend Yield Index Adm", "US Equity", "MUTUALFUND", "high dividend yield"),
+    "VICEX":  ("USA Mutuals Vice Investor", "US Equity", "MUTUALFUND", "vice stocks (alcohol/tobacco/gambling)"),
+    "VIG":    ("Vanguard Dividend Appreciation ETF", "US Equity", "ETF", "dividend growth"),
+    "VIGAX":  ("Vanguard Growth Index Admiral", "US Equity", "MUTUALFUND", "large cap growth"),
+    "VIGRX":  ("Vanguard Growth Index Investor", "US Equity", "MUTUALFUND", "large cap growth"),
+    "VIMAX":  ("Vanguard Mid Cap Index Admiral", "US Equity", "MUTUALFUND", "mid cap blend"),
+    "VIMSX":  ("Vanguard Mid Cap Index Investor", "US Equity", "MUTUALFUND", "mid cap blend"),
+    "VISGX":  ("Vanguard Small Cap Growth Index Inv", "US Equity", "MUTUALFUND", "small cap growth"),
+    "VISVX":  ("Vanguard Small Cap Value Index Inv", "US Equity", "MUTUALFUND", "small cap value"),
+    "VIVAX":  ("Vanguard Value Index Inv", "US Equity", "MUTUALFUND", "large cap value"),
+    "VLUE":   ("iShares MSCI USA Value Factor ETF", "US Equity", "ETF", "value factor"),
+    "VMGIX":  ("Vanguard Mid-Cap Growth Index Investor", "US Equity", "MUTUALFUND", "mid cap growth"),
+    "VMGMX":  ("Vanguard Mid-Cap Growth Index Admiral", "US Equity", "MUTUALFUND", "mid cap growth"),
+    "VMVAX":  ("Vanguard Mid-Cap Value Index Admiral", "US Equity", "MUTUALFUND", "mid cap value"),
+    "VMVIX":  ("Vanguard Mid-Cap Value Index Investor", "US Equity", "MUTUALFUND", "mid cap value"),
+    "VSGAX":  ("Vanguard Small Cap Growth Index Admiral", "US Equity", "MUTUALFUND", "small cap growth"),
+    "VSIAX":  ("Vanguard Small Cap Value Index Admiral", "US Equity", "MUTUALFUND", "small cap value"),
+    "VSMAX":  ("Vanguard Small Cap Index Admiral", "US Equity", "MUTUALFUND", "small cap blend"),
+    "VTSAX":  ("Vanguard Total Stock Market Index Adm", "US Equity", "MUTUALFUND", "total US market"),
+    "VTSMX":  ("Vanguard Total Stock Market Index Inv", "US Equity", "MUTUALFUND", "total US market"),
+    "VVIAX":  ("Vanguard Value Index Admiral", "US Equity", "MUTUALFUND", "large cap value"),
+    "VWELX":  ("Vanguard Wellington Fund Investor", "US Equity", "MUTUALFUND", "balanced value"),
+    "VWENX":  ("Vanguard Wellington Fund Admiral", "US Equity", "MUTUALFUND", "balanced value"),
+    "VWIAX":  ("Vanguard Wellesley Income Admiral", "US Equity", "MUTUALFUND", "balanced income"),
+    "VWINX":  ("Vanguard Wellesley Income Investor", "US Equity", "MUTUALFUND", "balanced income"),
+    "VWNAX":  ("Vanguard Windsor II Admiral", "US Equity", "MUTUALFUND", "large cap value"),
+    "VWNDX":  ("Vanguard Windsor Fund Investor", "US Equity", "MUTUALFUND", "large cap value"),
+    "VWNEX":  ("Vanguard Windsor Fund Admiral", "US Equity", "MUTUALFUND", "large cap value"),
+    "VWNFX":  ("Vanguard Windsor II Investor", "US Equity", "MUTUALFUND", "large cap value"),
+    "VYM":    ("Vanguard High Dividend Yield ETF", "US Equity", "ETF", "high dividend yield"),
+    # US Municipal Bonds (6)
+    "VWITX":  ("Vanguard Intermediate-Term Tax-Exempt Inv", "US Municipal Bonds", "MUTUALFUND", "intermediate tax-exempt"),
+    "VWIUX":  ("Vanguard Intermediate-Term Tax-Exempt Adm", "US Municipal Bonds", "MUTUALFUND", "intermediate tax-exempt"),
+    "VWLTX":  ("Vanguard Long-Term Tax-Exempt Inv", "US Municipal Bonds", "MUTUALFUND", "long-term tax-exempt"),
+    "VWLUX":  ("Vanguard Long-Term Tax-Exempt Adm", "US Municipal Bonds", "MUTUALFUND", "long-term tax-exempt"),
+    "VWSTX":  ("Vanguard Ultra Short-Term Tax-Exempt Inv", "US Municipal Bonds", "MUTUALFUND", "ultra short tax-exempt"),
+    "VWSUX":  ("Vanguard Ultra Short-Term Tax-Exempt Adm", "US Municipal Bonds", "MUTUALFUND", "ultra short tax-exempt"),
+    # US REIT (2)
+    "VGSIX":  ("Vanguard Real Estate Index Investor", "US REIT", "MUTUALFUND", "US REITs"),
+    "VGSLX":  ("Vanguard Real Estate Index Admiral", "US REIT", "MUTUALFUND", "US REITs"),
+    # US Treasuries (13)
+    "EDV":    ("Vanguard Extended Duration Treasury ETF", "US Treasuries", "ETF", "long-duration treasury"),
+    "VFIRX":  ("Vanguard Short-Term Treasury Fund Adm", "US Treasuries", "MUTUALFUND", "short-term treasury"),
+    "VFISX":  ("Vanguard Short-Term Treasury Fund Inv", "US Treasuries", "MUTUALFUND", "short-term treasury"),
+    "VFITX":  ("Vanguard Intermediate-Term Treasury Inv", "US Treasuries", "MUTUALFUND", "intermediate treasury"),
+    "VFIUX":  ("Vanguard Intermediate-Term Treasury Adm", "US Treasuries", "MUTUALFUND", "intermediate treasury"),
+    "VGIT":   ("Vanguard Intermediate-Term Treasury ETF", "US Treasuries", "ETF", "intermediate treasury"),
+    "VGLT":   ("Vanguard Long-Term Treasury ETF", "US Treasuries", "ETF", "long-term treasury"),
+    "VGSH":   ("Vanguard Short-Term Treasury ETF", "US Treasuries", "ETF", "short-term treasury"),
+    "VLGSX":  ("Vanguard Long-Term Treasury Index Adm", "US Treasuries", "MUTUALFUND", "long-term treasury"),
+    "VSBSX":  ("Vanguard Short-Term Treasury Index Adm", "US Treasuries", "MUTUALFUND", "short-term treasury"),
+    "VSIGX":  ("Vanguard Intermediate-Term Treasury Index Adm", "US Treasuries", "MUTUALFUND", "intermediate treasury"),
+    "VUSTX":  ("Vanguard Long-Term Treasury Inv", "US Treasuries", "MUTUALFUND", "long-term treasury"),
+    "VUSUX":  ("Vanguard Long-Term Treasury Admiral", "US Treasuries", "MUTUALFUND", "long-term treasury"),
+    # World Equity (4)
+    "OPPAX":  ("Invesco Global Fund A", "World Equity", "MUTUALFUND", "global equity"),
+    "VGPMX":  ("Vanguard Global Capital Cycles Investor", "World Equity", "MUTUALFUND", "global capital cycles"),
+    "VT":     ("Vanguard Total World Stock ETF", "World Equity", "ETF", "global total market"),
+    "VTWAX":  ("Vanguard Total World Stock Index Admiral", "World Equity", "MUTUALFUND", "global total market"),
 }
 
 # ---------------------------------------------------------------------------
@@ -92,17 +350,17 @@ ASSET_TICKERS = {
 #    and also aggregated by sector.
 # ---------------------------------------------------------------------------
 STOCK_SECTORS = {
-    "Technology":          ["AAPL","MSFT","NVDA","AVGO","ORCL","ADBE","CRM","INTC","AMD","CSCO","QCOM","TXN","IBM","NOW","INTU"],
-    "Communication Srv":   ["GOOGL","META","VZ","TMUS","CMCSA","T"],
-    "Consumer Discretionary":["AMZN","TSLA","HD","MCD","NKE","SBUX","LOW","BKNG","F","GM"],
-    "Consumer Staples":    ["WMT","KO","PEP","PG","COST","MDLZ","CL","TGT"],
-    "Healthcare":          ["JNJ","UNH","LLY","PFE","ABBV","MRK","TMO","ABT","DHR","BMY"],
-    "Financials":          ["JPM","BAC","WFC","GS","MS","BLK","V","MA","AXP","SCHW","CB"],
-    "Industrials":         ["BA","CAT","GE","HON","UPS","UNP","RTX","DE","LMT"],
-    "Energy":              ["XOM","CVX","COP","SLB","EOG","PSX","MPC"],
-    "Materials":           ["LIN","APD","NEM","FCX","DOW"],
-    "Utilities":           ["NEE","DUK","SO","AEP","EXC"],
-    "Real Estate":         ["PLD","AMT","CCI","EQIX","SPG","PSA"],
+    "Technology":          ["AAPL","MSFT","NVDA","AVGO","ORCL","ADBE","CRM","INTC","AMD","CSCO","QCOM","TXN","IBM","NOW","INTU","UBER","PANW","SNOW","MU"],
+    "Communication Srv":   ["GOOGL","META","VZ","TMUS","CMCSA","T","NFLX","DIS"],
+    "Consumer Discretionary":["AMZN","TSLA","HD","MCD","NKE","SBUX","LOW","BKNG","F","GM","MAR","TJX"],
+    "Consumer Staples":    ["WMT","KO","PEP","PG","COST","MDLZ","CL","TGT","PM","MO","EL"],
+    "Healthcare":          ["JNJ","UNH","LLY","PFE","ABBV","MRK","TMO","ABT","DHR","BMY","ISRG","ELV","CI","CVS"],
+    "Financials":          ["JPM","BAC","WFC","GS","MS","BLK","V","MA","AXP","SCHW","CB","BRK-B","SPGI","C","USB","PNC","AIG"],
+    "Industrials":         ["BA","CAT","GE","HON","UPS","UNP","RTX","DE","LMT","ADP","ITW","FDX","NSC","WM","LHX"],
+    "Energy":              ["XOM","CVX","COP","SLB","EOG","PSX","MPC","KMI","WMB","OXY"],
+    "Materials":           ["LIN","APD","NEM","FCX","DOW","CTVA","ECL"],
+    "Utilities":           ["NEE","DUK","SO","AEP","EXC","SRE","D"],
+    "Real Estate":         ["PLD","AMT","CCI","EQIX","SPG","PSA","WELL","O"],
 }
 
 STOCKS = {}
@@ -114,34 +372,12 @@ ALL_TICKERS = {**ASSET_TICKERS, **STOCKS}
 
 # ---------------------------------------------------------------------------
 # 3. DOWNLOAD  monthly history (period='max', interval='1mo')
+#    Uses _download_batched() to respect Yahoo rate limits.
 # ---------------------------------------------------------------------------
 def download_all(tickers: list[str]) -> pd.DataFrame:
     """Download monthly adjusted close for all tickers. Returns wide DataFrame
     indexed by month-end date with one column per ticker (adjusted close)."""
-    print(f"\nDownloading {len(tickers)} tickers (period=max, interval=1mo) ...", flush=True)
-    # yfinance download: group_by='column' gives MultiIndex (field, ticker)
-    data = yf.download(
-        tickers=tickers,
-        period="max",
-        interval="1mo",
-        auto_adjust=True,     # Close == total-return adjusted close
-        actions=False,
-        group_by="column",
-        threads=True,
-        progress=False,
-        ignore_tz=True,
-    )
-    if data.empty:
-        raise SystemExit("yf.download returned empty data")
-    # Extract the 'Close' field
-    if isinstance(data.columns, pd.MultiIndex):
-        close = data["Close"].copy()
-    else:
-        close = data.to_frame(name=tickers[0]) if data.ndim == 1 else data.copy()
-    close.index = pd.to_datetime(close.index)
-    # normalize index to month-end
-    close.index = close.index.to_period("M").to_timestamp("M")
-    return close.sort_index()
+    return _download_batched(tickers, interval="1mo", period="max")
 
 prices = download_all(list(ALL_TICKERS.keys()))
 print("Raw prices shape:", prices.shape)
