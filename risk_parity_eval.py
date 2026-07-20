@@ -380,7 +380,8 @@ SCHEMES: Dict[str, Callable] = {
 SCHEME_ORDER = ["EW", "InvVol", "InvVar", "ERC", "MinVar", "LS-TSMOM",
                 "TrendGate", "RP-LS-Overlay", "StructShort", "TG-LS-Overlay",
                 "TG-Short", "TG-Short-LS", "TG-Short-6m",
-                "EW-Short", "EW-Short-LS", "EW-Short-6m"]
+                "EW-Short", "EW-Short-LS", "EW-Short-6m",
+                "EW-MA-Short", "EW-Vol-Short", "EW-DMA-Short"]
 # Schemes that solve a covariance-based target weight annually (vs LS-TSMOM,
 # which is a monthly momentum signal with no covariance target).
 COV_SCHEMES = {"EW", "InvVol", "InvVar", "ERC", "MinVar"}
@@ -399,6 +400,16 @@ COV_SCHEMES = {"EW", "InvVol", "InvVar", "ERC", "MinVar"}
 #   w_overlay    : LS-TSMOM dollar-neutral momentum sleeve gross (adds gross).
 #   struct_short : (sleeve_name, w_short) permanent sleeve-level net short.
 #   lookback     : optional per-preset override of the trend-signal window (months).
+#   gate_signal  : the equity-gate signal. "tsmom" (default, trailing-lookback
+#                  return -- LAGGING, the round-1/2 signal) OR a LEADING signal:
+#                  "ma" (price vs its `lookback`-month SMA -- long above, short
+#                  below; an MA crosses BEFORE a lookback-return flips sign),
+#                  "vol" (realized-vol regime -- long in calm, short in high-vol
+#                  stress; vol spikes tend to LEAD drawdowns), or "dma" (dual-MA
+#                  -- long when the 3m MA > 10m MA; faster than a single MA). The
+#                  round-3 leading-signal family targets the round-2 blocker
+#                  (a lagging signal is long into drawdown starts and short into
+#                  rally starts -> Dnβ >= Upβ everywhere).
 FLAVOR_PRESETS: Dict[str, dict] = {
     "TrendGate":     {"trend_gate": True,  "gate_mode": "cash",
                       "w_overlay": 0.0, "struct_short": None},
@@ -423,6 +434,19 @@ FLAVOR_PRESETS: Dict[str, dict] = {
                       "w_overlay": 0.20, "struct_short": None},
     "EW-Short-6m":   {"trend_gate": True,  "gate_mode": "short", "base_mode": "ew",
                       "w_overlay": 0.0, "struct_short": None, "lookback": 6},
+    # Round 3: LEADING downside signals (EW base, gate_mode=short). The round-2
+    # blocker was that trailing 12m/6m momentum LAGS -- long into drawdown starts,
+    # short/flat into rally starts -> Dnβ >= Upβ everywhere. These gate equity on a
+    # signal that LEADS the price: a moving average, a volatility regime, or a
+    # dual-MA. Each keeps real equity weight (EW base) and flips equity to net-short
+    # on the downside signal (gate_mode=short), the construction the brief allows.
+    "EW-MA-Short":   {"trend_gate": True,  "gate_mode": "short", "base_mode": "ew",
+                      "gate_signal": "ma",  "w_overlay": 0.0, "struct_short": None,
+                      "lookback": 10},
+    "EW-Vol-Short":  {"trend_gate": True,  "gate_mode": "short", "base_mode": "ew",
+                      "gate_signal": "vol", "w_overlay": 0.0, "struct_short": None},
+    "EW-DMA-Short":  {"trend_gate": True,  "gate_mode": "short", "base_mode": "ew",
+                      "gate_signal": "dma", "w_overlay": 0.0, "struct_short": None},
 }
 
 
@@ -558,6 +582,73 @@ def _backtest_ls_tsmom(panel: pd.DataFrame, ret_full: pd.DataFrame,
             "last_w": last_w, "div_ratio": float("nan")}
 
 
+def _gate_signal(H: np.ndarray, lookback: int, gate_signal: str,
+                 vol_window: int = 6, vol_median: int = 60,
+                 fast: int = 3, slow: int = 10) -> np.ndarray:
+    """Per-month equity-gate direction from a (possibly leading) signal.
+
+    ``H`` is the (T_hist, n) monthly-returns history (pre-window + window) for the
+    combo sleeves (same ``H`` used by ``_backtest_flavor``). Returns ``sig`` of
+    shape (T_hist, n) with values in {+1.0 (long), -1.0 (short), 0.0 (no-signal /
+    warmup)} per sleeve per month. The caller only applies ``sig`` to equity
+    sleeves (``is_eq``); non-equity sleeves are ignored.
+
+    Signals (the round-3 leading-signal family; ``"tsmom"`` reproduces the
+    round-1/2 trailing-momentum gate exactly so existing presets are unchanged):
+      * "tsmom": sign(trailing-`lookback` return) -- LAGGING (the round-1/2 signal).
+      * "ma":   long when prior month's price > its trailing-`lookback` SMA, short
+                when below (an MA crosses BEFORE a lookback-return flips sign).
+      * "vol":  long when prior month's `vol_window`-m realized vol < its trailing
+                `vol_median`-month median (calm), short when above (stress). Vol
+                spikes tend to LEAD drawdowns.
+      * "dma":  long when the `fast`-m SMA > `slow`-m SMA (prior month), short when
+                below -- a faster crossover than the single-MA gate.
+    All signals are strictly causal (use only data through the prior month)."""
+    T, n = H.shape
+    sig = np.zeros((T, n))
+    if gate_signal == "tsmom":
+        for t in range(T):
+            if t >= lookback:
+                mom = np.prod(1.0 + H[t - lookback:t], axis=0) - 1.0
+                sig[t] = np.where(mom > 0.0, 1.0, np.where(mom < 0.0, -1.0, 0.0))
+        return sig
+    # Price level (cumulative return index, base 1.0) for the price-based signals.
+    lvl = np.cumprod(1.0 + H, axis=0)
+    if gate_signal == "ma":
+        for t in range(T):
+            if t >= lookback:
+                ma = lvl[t - lookback:t].mean(axis=0)   # SMA over [t-lookback, t-1]
+                prev = lvl[t - 1]
+                sig[t] = np.where(prev > ma, 1.0, np.where(prev < ma, -1.0, 0.0))
+        return sig
+    if gate_signal == "dma":
+        for t in range(T):
+            if t >= slow:
+                fast_ma = lvl[t - fast:t].mean(axis=0)
+                slow_ma = lvl[t - slow:t].mean(axis=0)
+                sig[t] = np.where(fast_ma > slow_ma, 1.0,
+                                  np.where(fast_ma < slow_ma, -1.0, 0.0))
+        return sig
+    if gate_signal == "vol":
+        rv = np.zeros((T, n))
+        for t in range(T):
+            if t >= vol_window:
+                rv[t] = H[t - vol_window:t].std(axis=0, ddof=0) * np.sqrt(12.0)
+        for t in range(T):
+            if t >= vol_median:
+                med = np.median(rv[t - vol_median:t], axis=0)
+                prev = rv[t - 1]
+                sig[t] = np.where(prev < med, 1.0,
+                                  np.where(prev > med, -1.0, 0.0))
+        return sig
+    # Fallback: tsmom (so an unknown gate_signal is safe, not a crash).
+    for t in range(T):
+        if t >= lookback:
+            mom = np.prod(1.0 + H[t - lookback:t], axis=0) - 1.0
+            sig[t] = np.where(mom > 0.0, 1.0, np.where(mom < 0.0, -1.0, 0.0))
+    return sig
+
+
 def _backtest_flavor(panel: pd.DataFrame, ret_full: pd.DataFrame,
                      sleeve_idx: List[int], eq: Optional[List[str]],
                      precomp: Dict[pd.Timestamp, Tuple[np.ndarray, np.ndarray]],
@@ -598,6 +689,7 @@ def _backtest_flavor(panel: pd.DataFrame, ret_full: pd.DataFrame,
     is_eq = np.array([nm in eq_set for nm in names], dtype=bool)
     trend_gate = bool(preset.get("trend_gate", False))
     gate_mode = str(preset.get("gate_mode", "cash"))   # "cash" or "short"
+    gate_signal = str(preset.get("gate_signal", "tsmom"))   # "tsmom"|"ma"|"vol"|"dma"
     w_overlay = float(preset.get("w_overlay", 0.0))
     ss = preset.get("struct_short")
     short_name = ss[0] if ss else None
@@ -609,13 +701,23 @@ def _backtest_flavor(panel: pd.DataFrame, ret_full: pd.DataFrame,
 
     # Trailing momentum per sleeve, with pre-window history so the first
     # ``lookback`` months still get a causal signal (matches _backtest_ls_tsmom).
+    # The leading-signal family (gate_signal ma/vol/dma) needs a longer pre-window
+    # (the vol-regime signal uses a 60m median of a 6m realized vol -> ~66m), so
+    # pull max(lookback, 72) months of pre-window history when available.
+    pre_n = max(lookback, 72)
     if ret_full is not None and set(names).issubset(ret_full.columns):
-        pre = ret_full.loc[:idx[0]].iloc[:-1].tail(lookback)
+        pre = ret_full.loc[:idx[0]].iloc[:-1].tail(pre_n)
         hist = pd.concat([pre[names], ret_full.loc[idx[0]:idx[-1], names]], axis=0)
     else:
         hist = panel[names]
     H = hist.values
     Hidx = hist.index
+
+    # Precompute the equity-gate signal (per sleeve, per month) for the leading-
+    # signal family. ``tsmom`` (the default) is handled inline below to keep the
+    # round-1/2 presets byte-identical; ma/vol/dma use this precomputed array.
+    sig_full = (_gate_signal(H, lookback, gate_signal)
+                if (trend_gate and gate_signal != "tsmom") else None)
 
     refit_set = set(_refit_dates(idx, "A"))
     base_w = None          # annual long-leg target (constant between refits)
@@ -658,16 +760,25 @@ def _backtest_flavor(panel: pd.DataFrame, ret_full: pd.DataFrame,
         # Long leg, optional trend-gate on equity sleeves.
         long_leg = base_w.copy()
         if trend_gate:
+            # Gate direction per sleeve (+1 long / -1 short / 0 flat signal).
+            # ``tsmom`` (default) derives it from the trailing-lookback return
+            # (``mom``) so the round-1/2 presets are byte-identical; the leading-
+            # signal family (ma/vol/dma) uses the precomputed ``sig_full`` array
+            # — a faster signal meant to exit equity *before* the drawdown and
+            # re-enter *before* the rally (the round-2 lagging-signal blocker).
+            if gate_signal == "tsmom":
+                gd = np.sign(mom)
+            else:
+                gd = sig_full[loc] if sig_full is not None else np.sign(mom)
             if gate_mode == "short":
-                # "correlated up, protected down": long equity when mom>0,
-                # SHORT the equity sleeve when mom<0, hold long when no signal
-                # (mom==0, e.g. warm-up). Bonds/gold/diversifiers stay long. The
+                # "correlated up, protected down": long equity when gd>0,
+                # SHORT the equity sleeve when gd<0, hold long when no signal
+                # (gd==0, e.g. warm-up). Bonds/gold/diversifiers stay long. The
                 # short flip adds gross when equity is short -> leverage cost.
-                flip = np.sign(mom)
-                eq_mult = np.where(mom != 0.0, flip, 1.0)
+                eq_mult = np.where(gd != 0.0, gd, 1.0)
                 long_leg = long_leg * np.where(is_eq, eq_mult, 1.0)
-            else:   # "cash": gate equity to 0 when mom<=0 (long-only, gross<=1)
-                gate = np.where(mom > 0.0, 1.0, 0.0)
+            else:   # "cash": gate equity to 0 when gd<=0 (long-only, gross<=1)
+                gate = np.where(gd > 0.0, 1.0, 0.0)
                 long_leg = long_leg * np.where(is_eq, gate, 1.0)
         # Structural short (sleeve-level netting).
         if short_i >= 0:
@@ -2155,6 +2266,42 @@ def write_report(args, train_res, test_eval, oos_port, oos_m, sel_log, win,
                 ["Faster signal whipsaws more; more turnover.",
                  "Higher vol / drawdown than MinVar-base flavors (more equity).",
                  "Most parameters → check DSR / bootstrap CI."]),
+            "EW-MA-Short": (
+                ["EW-Short driven by a LEADING signal: price-vs-10m-SMA crossover (an MA "
+                 "crosses BEFORE a lookback-return flips sign), so equity exits BEFORE the "
+                 "drawdown and re-enters BEFORE the rally — the round-2 lagging-momentum "
+                 "blocker's direct fix.",
+                 "Real equity weight (EW base) + short-on-downside; directly targets high "
+                 "upside-β with negative downside-β.",
+                 "Sleeve-level netting can keep gross ≤ 1."],
+                ["MA crossover still whipsaws in choppy/sideways tape (price oscillates "
+                 "around the SMA → repeated false flips).",
+                 "Higher vol / drawdown than MinVar-base flavors (more equity); more "
+                 "turnover than the 12m TSMOM gate.",
+                 "New signal → new overfitting surface; check DSR / bootstrap CI."]),
+            "EW-Vol-Short": (
+                ["EW-Short driven by a VOL-REGIME signal: short equity when 6m realized vol "
+                 "EXCEEDS its trailing 60m median (vol spikes LEAD drawdowns), long when vol "
+                 "is calm — a regime filter, not a price-trend filter.",
+                 "Different information set from price-MA → diversifies the signal family; "
+                 "real equity weight (EW base).",
+                 "Sleeve-level netting can keep gross ≤ 1."],
+                ["Vol spikes can lag the actual drawdown start (vol rises AS price falls, "
+                 "not before) — may still enter the short late.",
+                 "60m median needs a long warm-up; fewer active signals in the early TEST "
+                 "window.",
+                 "New signal → new overfitting surface; check DSR / bootstrap CI."]),
+            "EW-DMA-Short": (
+                ["EW-Short driven by a DUAL-MA signal: fast 3m SMA vs slow 10m SMA — a faster, "
+                 "smoother crossover than price-vs-SMA (the slow MA smooths the reference, so "
+                 "fewer false flips than EW-MA-Short).",
+                 "Leading signal (a fast/slow cross precedes the lookback-return flip); real "
+                 "equity weight (EW base) + short-on-downside.",
+                 "Sleeve-level netting can keep gross ≤ 1."],
+                ["Fast 3m SMA is noisy → still some whipsaw; the slow 10m MA adds lag vs the "
+                 "single-MA gate.",
+                 "Two MAs → slightly more overfitting surface than EW-MA-Short.",
+                 "New signal → new overfitting surface; check DSR / bootstrap CI."]),
         }
         for fname in SCHEME_ORDER:
             if fname not in flavor_data:
