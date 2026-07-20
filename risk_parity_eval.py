@@ -384,7 +384,9 @@ SCHEME_ORDER = ["EW", "InvVol", "InvVar", "ERC", "MinVar", "LS-TSMOM",
                 "EW-MA-Short", "EW-Vol-Short", "EW-DMA-Short",
                 "EW-AsymMA-Short", "EW-DDStop-Short",
                 "EW-AsymMA-Short-6", "EW-AsymMA-Short-9", "EW-AsymMA-Tight",
-                "EW-AsymVol-Short"]
+                "EW-AsymVol-Short",
+                "EW-Hedge-DMA-1", "EW-Hedge-DMA", "EW-Hedge-DMA-2",
+                "EW-Hedge-MA", "EW-Hedge-DD"]
 # Schemes that solve a covariance-based target weight annually (vs LS-TSMOM,
 # which is a monthly momentum signal with no covariance target).
 COV_SCHEMES = {"EW", "InvVol", "InvVar", "ERC", "MinVar"}
@@ -475,6 +477,29 @@ FLAVOR_PRESETS: Dict[str, dict] = {
                         "w_overlay": 0.0, "struct_short": None},
     "EW-AsymVol-Short": {"trend_gate": True, "gate_mode": "short", "base_mode": "ew",
                          "gate_signal": "asym_vol", "w_overlay": 0.0, "struct_short": None},
+    # Round 5: DECOUPLED insurance overlay (gate_mode="overlay"). The long EW
+    # base NEVER flips -> Upβ stays positive (the round-4b structural blocker's
+    # fix). A SEPARATE additive short overlay on the equity sleeves activates
+    # only on a downside signal (flat otherwise) -> Dnβ pushed down. The overlay
+    # signal is FAST-OFF (symmetric / dd_stop), the opposite hysteresis of round
+    # 4, so it does not drag the rally. ``w_hedge`` = fraction of each equity
+    # sleeve's base weight shorted when down; >1 -> net short equity in down-
+    # months (needed to push Dnβ negative). Additive gross -> leverage cost.
+    "EW-Hedge-DMA-1":  {"trend_gate": True, "gate_mode": "overlay", "base_mode": "ew",
+                        "gate_signal": "dma", "w_hedge": 1.0, "w_overlay": 0.0,
+                        "struct_short": None},
+    "EW-Hedge-DMA":    {"trend_gate": True, "gate_mode": "overlay", "base_mode": "ew",
+                        "gate_signal": "dma", "w_hedge": 1.5, "w_overlay": 0.0,
+                        "struct_short": None},
+    "EW-Hedge-DMA-2":  {"trend_gate": True, "gate_mode": "overlay", "base_mode": "ew",
+                        "gate_signal": "dma", "w_hedge": 2.0, "w_overlay": 0.0,
+                        "struct_short": None},
+    "EW-Hedge-MA":     {"trend_gate": True, "gate_mode": "overlay", "base_mode": "ew",
+                        "gate_signal": "ma", "w_hedge": 1.5, "w_overlay": 0.0,
+                        "struct_short": None},
+    "EW-Hedge-DD":     {"trend_gate": True, "gate_mode": "overlay", "base_mode": "ew",
+                        "gate_signal": "dd_stop", "w_hedge": 1.5, "w_overlay": 0.0,
+                        "struct_short": None},
 }
 
 
@@ -796,6 +821,10 @@ def _backtest_flavor(panel: pd.DataFrame, ret_full: pd.DataFrame,
     gate_mode = str(preset.get("gate_mode", "cash"))   # "cash" or "short"
     gate_signal = str(preset.get("gate_signal", "tsmom"))   # "tsmom"|"ma"|"vol"|"dma"
     w_overlay = float(preset.get("w_overlay", 0.0))
+    # Round-5 decoupled insurance-overlay size (fraction of each equity sleeve's
+    # base weight to short, additively, when the downside signal fires). 0 by
+    # default -> existing presets byte-identical; only round-5 presets set it.
+    w_hedge = float(preset.get("w_hedge", 0.0))
     ss = preset.get("struct_short")
     short_name = ss[0] if ss else None
     w_short = float(ss[1]) if ss else 0.0
@@ -881,6 +910,7 @@ def _backtest_flavor(panel: pd.DataFrame, ret_full: pd.DataFrame,
             mom = np.zeros(n)            # warm-up: no signal (flat overlay / open gate)
         # Long leg, optional trend-gate on equity sleeves.
         long_leg = base_w.copy()
+        ol = np.zeros(n)   # round-5 decoupled short overlay (additive gross)
         if trend_gate:
             # Gate direction per sleeve (+1 long / -1 short / 0 flat signal).
             # ``tsmom`` (default) derives it from the trailing-lookback return
@@ -899,6 +929,28 @@ def _backtest_flavor(panel: pd.DataFrame, ret_full: pd.DataFrame,
                 # short flip adds gross when equity is short -> leverage cost.
                 eq_mult = np.where(gd != 0.0, gd, 1.0)
                 long_leg = long_leg * np.where(is_eq, eq_mult, 1.0)
+            elif gate_mode == "overlay":
+                # Round 5: DECOUPLED insurance overlay. The long base NEVER
+                # flips (stays at base_w in every month, including down-months
+                # and recoveries) so the portfolio's up-month beta stays that
+                # of the long-only base -- POSITIVE, the round-4b structural
+                # blocker's direct fix. A SEPARATE short overlay on the equity
+                # sleeves is active ONLY when gd<0 (a downside signal) and
+                # FLAT otherwise: in up-months the overlay is zero, so the
+                # base's full equity weight is at work (Upβ not dragged); in
+                # down-months the overlay shorts ``w_hedge`` of each equity
+                # sleeve (proportional to its base weight), clipping the
+                # downside. Because the overlay is a SEPARATE notional (the
+                # long base and the short overlay are both held, NOT sleeve-
+                # netted into one weight), it adds gross when active ->
+                # leverage cost; that is the explicit price of decoupling the
+                # two halves (vs the free sleeve-netted flip of gate_mode=
+                # "short", which decoupling-free also killed Upβ). The overlay
+                # signal must be FAST-OFF in recoveries (so it does not drag
+                # the rally) -- the OPPOSITE hysteresis of round 4's asym_ma:
+                # use a symmetric signal (ma/dma) or dd_stop, NOT asym_ma.
+                down = is_eq & (gd < 0.0)
+                ol[down] = -w_hedge * base_w[down]
             else:   # "cash": gate equity to 0 when gd<=0 (long-only, gross<=1)
                 gate = np.where(gd > 0.0, 1.0, 0.0)
                 long_leg = long_leg * np.where(is_eq, gate, 1.0)
@@ -906,7 +958,7 @@ def _backtest_flavor(panel: pd.DataFrame, ret_full: pd.DataFrame,
         if short_i >= 0:
             long_leg[short_i] -= w_short
         # LS-TSMOM dollar-neutral momentum overlay.
-        pos_target = long_leg.copy()
+        pos_target = long_leg + ol
         if w_overlay > 0.0:
             pos_target = pos_target + w_overlay * base_w * np.sign(mom)
         # Turnover (two-way, full position vector), gross/net, leverage funding.
@@ -917,7 +969,13 @@ def _backtest_flavor(panel: pd.DataFrame, ret_full: pd.DataFrame,
         turn[tpos] = t
         g = float(pos_target @ R[tpos])
         gross[tpos] = g
-        gross_notional = float(np.abs(pos_target).sum())
+        # Additive gross for the round-5 overlay (long base + separate short
+        # notional, NOT sleeve-netted) -> leverage cost on the true gross; the
+        # other modes use the netted |pos_target| as before (byte-identical).
+        if gate_mode == "overlay" and w_hedge > 0.0:
+            gross_notional = float(np.abs(long_leg).sum()) + float(np.abs(ol).sum())
+        else:
+            gross_notional = float(np.abs(pos_target).sum())
         if lev_rate > 0.0 and gross_notional > 1.0:
             net[tpos] = g - t * cost_bps - (gross_notional - 1.0) * (lev_rate / 12.0)
         else:
@@ -2512,6 +2570,90 @@ def write_report(args, train_res, test_eval, oos_port, oos_m, sel_log, win,
                  "60m median needs a long warm-up; the 0.85x / 1.0x thresholds are "
                  "tuned → overfitting surface. New signal → check DSR / bootstrap "
                  "CI; one split = one regime."]),
+            "EW-Hedge-DMA-1": (
+                ["Round-5 DECOUPLED insurance overlay, light hedge (w_hedge=1.0): "
+                 "the long EW base NEVER flips (gross 1, fully long in every month "
+                 "incl. recoveries) so Upβ stays that of the long-only base — the "
+                 "round-4b structural blocker's direct fix. A SEPARATE additive "
+                 "short overlay on the equity sleeves activates only when the fast "
+                 "3m/10m dual-MA signal is DOWN (flat otherwise); w_hedge=1.0 nets "
+                 "equity to ~0 in down-months (a 'cash on the downside' hedge, not "
+                 "net-short).",
+                 "Fast symmetric signal (dma) -> FAST-OFF in recoveries (does not "
+                 "drag the rally, unlike round-4's slow re-entry).",
+                 "Decouples the two halves the brief asks for: long base = upside, "
+                 "overlay = downside insurance; the 'long-term short a ticker' "
+                 "permission applied as an overlay not a gate."],
+                ["w_hedge=1.0 only nets equity to ~0 in down-months -> Dnβ is "
+                 "reduced but likely still POSITIVE (the non-equity sleeves still "
+                 "track equity down); to drive Dnβ NEGATIVE needs w_hedge > 1.",
+                 "Additive gross when active -> leverage cost; the overlay is a "
+                 "separate notional so it is NOT free (vs the sleeve-netted flip).",
+                 "New construction + tuned w_hedge -> overfitting surface; one "
+                 "TRAIN/TEST split = one regime. Check DSR / bootstrap CI."]),
+            "EW-Hedge-DMA": (
+                ["Round-5 DECOUPLED overlay, MEDIUM hedge (w_hedge=1.5): same "
+                 "never-flipping long EW base + fast dma-triggered additive short "
+                 "overlay, but w_hedge=1.5 -> NET SHORT equity in down-months "
+                 "(base equity weight - 1.5x = negative). This is the sizing "
+                 "expected to push Dnβ NEGATIVE while the always-long base keeps "
+                 "Upβ POSITIVE — the unmet asymmetric property, by construction.",
+                 "Fast dma signal -> fast-off in recoveries; the base's full "
+                 "equity weight is at work in up-months (overlay flat).",
+                 "Directly targets 'correlated up, protected down' via decoupling, "
+                 "not a single price-gate."],
+                ["Gross 1 + 1.5 x (equity fraction) when active -> leverage cost "
+                 "(the explicit price of decoupling); only paid in down-months.",
+                 "Net-short equity in down-months means a wrong-footed whipsaw "
+                 "(signal flips short just before a rally) costs more than the "
+                 "light hedge; the fast dma signal whipsaws in chop.",
+                 "w_hedge=1.5 is tuned; new construction -> overfitting surface. "
+                 "Check DSR / bootstrap CI; one split = one regime."]),
+            "EW-Hedge-DMA-2": (
+                ["Round-5 DECOUPLED overlay, HEAVY hedge (w_hedge=2.0): the "
+                 "strongest downside clip — net short 1.0x the base equity weight "
+                 "in down-months. Tests how much downside protection (Dnβ most "
+                 "negative) the construction can buy before the leverage cost and "
+                 "whipsaw overwhelm the return.",
+                 "Same never-flipping long base (Upβ positive) + fast dma overlay.",
+                 "Brackets the w_hedge grid with EW-Hedge-DMA-1 (1.0) / -DMA (1.5)."],
+                ["Largest additive gross -> largest leverage cost; most whipsaw "
+                 "damage if the signal mistimes.",
+                 "w_hedge=2.0 is the most aggressive / most overfit corner of the "
+                 "round-5 grid.",
+                 "Check DSR / bootstrap CI; one split = one regime."]),
+            "EW-Hedge-MA": (
+                ["Round-5 overlay with the single 10m-SMA signal (vs the dual-MA "
+                 "dma): the overlay shorts when price < its 10m SMA. A slower, "
+                 "smoother downside trigger than dma -> fewer false flips in chop, "
+                 "but slower to deactivate in a V-rebound.",
+                 "Same never-flipping long EW base (Upβ positive) + additive short "
+                 "overlay (w_hedge=1.5).",
+                 "Tests whether the smoother signal beats the fast dma on the "
+                 "overlay (fewer whipsaw trades vs later off in recoveries)."],
+                ["The 10m SMA deactivates SLOWER than dma in a V-rebound (price "
+                 "reclaims the 10m SMA late) -> the overlay can drag the start of "
+                 "the rally (the round-4 problem, milder here because the base is "
+                 "always long).",
+                 "Additive gross -> leverage cost; tuned w_hedge. Check DSR / "
+                 "bootstrap CI; one split = one regime."]),
+            "EW-Hedge-DD": (
+                ["Round-5 overlay with the dd_stop (drawdown) signal: the overlay "
+                 "shorts once the equity sleeve is >10% below its trailing 6m peak "
+                 "and deactivates once within 3% of the peak. 'Hedge the break, "
+                 "un-hedge the new high' — the most direct map to the brief's "
+                 "shape, now applied to a SEPARATE overlay (not a flip).",
+                 "Same never-flipping long EW base (Upβ positive) + additive short "
+                 "overlay (w_hedge=1.5).",
+                 "The drawdown signal deactivates NATURALLY when equity recovers "
+                 "(drawdown shrinks) -> fast-off in V-rebounds, without a separate "
+                 "re-entry MA."],
+                ["dd_stop is a LAGGING trigger (price has already fallen 10% before "
+                 "the hedge activates) -> the hedge misses the first 10% of the "
+                 "drawdown; on an overlay (not a flip) this is late-activate but "
+                 "still fast-deactivate.",
+                 "Drawdown thresholds (10% / 3%) are tuned; additive gross -> "
+                 "leverage cost. Check DSR / bootstrap CI; one split = one regime."]),
         }
         for fname in SCHEME_ORDER:
             if fname not in flavor_data:

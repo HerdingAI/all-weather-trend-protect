@@ -6,7 +6,7 @@ This catalogs every portfolio "flavor" evaluated in `risk_parity_eval.py`: the s
 existing schemes (EW, InvVol, InvVar, ERC, MinVar, LS-TSMOM) plus the **TrendProtect**
 flavors added to answer the brief — *find an All-Weather variant with higher expected
 return while keeping equity correlation asymmetric (correlated on the way up, low/negative
-on the way down)*. The TrendProtect family grew in five rounds: **round 1** added four
+on the way down)*. The TrendProtect family grew in six rounds: **round 1** added four
 cash-gate / overlay / structural-short flavors; **round 2** added six `gate_mode=short`
 flavors (flip equity to net-short on the downside signal — the direct lever for negative
 downside-β) and an `asymmetric2` score that rewards upside capture + return instead of
@@ -16,7 +16,11 @@ vol-regime, dual-MA) to fix round 2's lagging-momentum blocker; **round 4** adde
 — the round-3 prescription made concrete, and the first flavor in the family to drive Dnβ
 negative. **Round 4b** widened that hysteretic-gate search — a `slow_entry` ∈ {6, 9, 12}
 grid plus a tighter band and a hysteretic vol-gate — to test whether a less-overshooting
-re-entry can keep Upβ positive while Dnβ stays negative. For each flavor: the construction
+re-entry can keep Upβ positive while Dnβ stays negative (it cannot — disconfirmed). **Round
+5** then decoupled the two halves: a *long-only base that never flips* (so Upβ stays
+positive) plus a *separate additive short overlay* on the equity sleeves, active only on a
+downside signal and flat otherwise — the construction the brief's "long-term short a ticker"
+permission points at, applied as an overlay not a gate. For each flavor: the construction
 formula, what it holds (gross / net, when it shorts), its parameters, the measured
 out-of-sample metrics, and pros / cons.
 
@@ -37,6 +41,8 @@ The measured numbers live in the canonical reports and are reproduced in the
   [`output/risk_parity_eval_asym4/report_eval.md`](../output/risk_parity_eval_asym4/report_eval.md).
 - **Asymmetric2-score canonical** (round 4b, +the four hysteretic-sweep flavors):
   [`output/risk_parity_eval_asym4b/report_eval.md`](../output/risk_parity_eval_asym4b/report_eval.md).
+- **Asymmetric2-score canonical** (round 5, +the five decoupled-overlay flavors):
+  [`output/risk_parity_eval_asym5/report_eval.md`](../output/risk_parity_eval_asym5/report_eval.md).
 
 See also the peer review: [`docs/peer-review.md`](peer-review.md).
 
@@ -592,6 +598,74 @@ EW-AsymMA-Short / EW-DDStop-Short produce identical numbers). Four new presets:
   −1.52% / −31.69% MaxDD). A hysteretic lower-bar re-entry waits for vol to actually
   calm. Different information set from price-MA → diversifies the signal family.
 
+## 3f. The decoupled insurance overlay (round 5)
+
+Round 4b **disconfirmed** the "less overshoot" hypothesis and isolated the structural
+blocker: in every `gate_mode="short"` flavor, the equity sleeve is **flipped** (long →
+short) on the downside signal and sleeve-**netted** into the base, so through recoveries
+the sleeve is still short until a re-entry trigger → Upβ goes negative. No band tuning
+fixes it (Upβ pinned at ≈ −0.11 across the whole hysteresis grid). Round 5 is the
+construction round 4b pointed to as the only remaining lever: **decouple the two halves
+entirely** — keep a *long-only* base that **never flips** (so Upβ stays that of the
+long-only base, **positive**) and add a **defined-downside insurance overlay** that is a
+*separate notional* (additive gross, not sleeve-netted) short on the equity sleeves,
+active only on a downside signal and **flat otherwise**. The brief's "long-term short a
+ticker" permission is applied as an *overlay*, not a *gate*.
+
+### The mechanical difference (the key innovation)
+In `gate_mode="short"`, the equity sleeve weight is **multiplied** by the gate direction
+(`base_w[eq] *= gd`): when `gd<0` the sleeve *becomes* negative — netted into one weight,
+gross ≤ 1, no leverage cost, but the sleeve is short in up-months too until re-entry.
+In `gate_mode="overlay"` (new), the long base is untouched (`long_leg = base_w` always),
+and a **separate** short overlay `ol` is added: `ol[eq] = −w_hedge · base_w[eq]` only when
+the signal is down, else 0. The return is `(base + ol) · R` (netted for P&L), but the
+**gross is additive**: `gross = |base|.sum() + |ol|.sum() = 1 + w_hedge·(equity fraction)`
+when active → leverage cost on the excess. This is the explicit price of decoupling (the
+sleeve-netted flip was "free" gross-wise but killed Upβ; the additive overlay costs gross
+but keeps Upβ positive). Per month:
+
+```
+up-month   (gd>0): ol = 0           → pos = base_w (fully long), gross = 1, no lev cost → Upβ = base Upβ ≈ +0.3
+down-month (gd<0): ol = −w_hedge·base_w[eq] → pos[eq] = base_w[eq]·(1−w_hedge), gross = 1 + w_hedge·w_eq → Dnβ ↓
+```
+
+`w_hedge > 1` ⇒ net **short** equity in down-months (needed to push Dnβ negative); the
+long base is still fully long in up-months (overlay flat). The overlay signal must be
+**fast-off** in recoveries (the *opposite* hysteresis of round 4's `asym_ma`): a symmetric
+signal (`dma` / `ma`) or `dd_stop` — **not** `asym_ma`, whose slow re-entry would drag the
+rally exactly as in round 4. New `gate_mode="overlay"` branch in `_backtest_flavor`
+(opt-in: existing presets set `w_hedge=0` and use `gate_mode` ∈ {cash, short} → the
+overlay branch is never entered, `ol` stays zeros, gross uses the netted `|pos|.sum()` →
+byte-identical).
+
+### EW-Hedge-DMA-1 / EW-Hedge-DMA / EW-Hedge-DMA-2
+- **Presets:** EW base, `gate_mode="overlay"`, `gate_signal="dma"` (fast 3m/10m dual-MA),
+  `w_hedge` ∈ {1.0, 1.5, 2.0}. Brackets the hedge size: 1.0 = net equity to ~0 in
+  down-months (a "cash on the downside" hedge, Dnβ reduced but likely still positive);
+  1.5 = net **short** equity (the sizing expected to drive Dnβ negative with Upβ
+  positive); 2.0 = strongest clip (most Dnβ reduction, most leverage cost + whipsaw).
+- **Construction / holds / shorts:** long-only EW base (gross 1, never gated) held in
+  *every* month; a separate short of `w_hedge · base_w` on each equity sleeve, active
+  only when the dma signal is down. Additive gross → leverage cost only in down-months.
+- **Parameters:** `w_hedge` ∈ {1.0, 1.5, 2.0}; `gate_signal="dma"`; `base_mode="ew"`.
+- **Why these:** the w_hedge grid spans "hedge to cash" → "net short" → "net short 1×"
+  to find the smallest w_hedge that drives Dnβ < 0 with Upβ > 0 (the unmet property),
+  priced against the leverage cost and whipsaw.
+
+### EW-Hedge-MA
+- **Preset:** `gate_signal="ma"` (single 10m SMA), `w_hedge=1.5`. A slower, smoother
+  downside trigger than dma → fewer false flips in chop, but deactivates slower in a
+  V-rebound (price reclaims the 10m SMA late) → can drag the start of the rally (milder
+  than round 4 because the base is always long). Tests signal choice on the overlay.
+
+### EW-Hedge-DD
+- **Preset:** `gate_signal="dd_stop"` (drawdown), `w_hedge=1.5`. The overlay shorts once
+  an equity sleeve is >10% below its trailing 6m peak and deactivates once within 3% of
+  the peak — "hedge the break, un-hedge the new high." The drawdown signal deactivates
+  *naturally* when equity recovers (drawdown shrinks) → fast-off in V-rebounds without a
+  separate re-entry MA. The most direct map to the brief's shape, now on a separate
+  overlay (not a flip). Lagging trigger (misses the first 10% of the drawdown).
+
 ---
 
 ## 4. Reproducing the comparison
@@ -629,6 +703,12 @@ EW-AsymMA-Short / EW-DDStop-Short produce identical numbers). Four new presets:
   --schemes EW,InvVol,InvVar,ERC,MinVar,LS-TSMOM,TrendGate,TG-Short,TG-Short-LS,TG-Short-6m,EW-Short,EW-Short-LS,EW-Short-6m,EW-MA-Short,EW-Vol-Short,EW-DMA-Short,EW-AsymMA-Short,EW-DDStop-Short,EW-AsymMA-Short-6,EW-AsymMA-Short-9,EW-AsymMA-Tight,EW-AsymVol-Short \
   --rolling-schemes EW,MinVar,LS-TSMOM --bootstrap 2000 --out-dir output/risk_parity_eval_asym4b
 # → output/risk_parity_eval_asym4b/report_eval.md (§10 = the round-4b sweep menu)
+
+# Asymmetric2-score canonical (round 5, +five decoupled-overlay flavors):
+.venv/bin/python risk_parity_eval.py --score-mode asymmetric2 \
+  --schemes EW,InvVol,InvVar,ERC,MinVar,LS-TSMOM,TrendGate,TG-Short,TG-Short-LS,TG-Short-6m,EW-Short,EW-Short-LS,EW-Short-6m,EW-MA-Short,EW-Vol-Short,EW-DMA-Short,EW-AsymMA-Short,EW-DDStop-Short,EW-AsymMA-Short-6,EW-AsymMA-Short-9,EW-AsymMA-Tight,EW-AsymVol-Short,EW-Hedge-DMA-1,EW-Hedge-DMA,EW-Hedge-DMA-2,EW-Hedge-MA,EW-Hedge-DD \
+  --rolling-schemes EW,MinVar,LS-TSMOM --bootstrap 2000 --out-dir output/risk_parity_eval_asym5
+# → output/risk_parity_eval_asym5/report_eval.md (§10 = the round-5 decoupled-overlay menu)
 
 # Regression guard (default score, COV-only — existing numbers unchanged):
 .venv/bin/python risk_parity_eval.py --ref-mode sleeves --schemes EW,InvVol,InvVar,ERC,MinVar --no-rolling
@@ -1012,5 +1092,101 @@ winner. Net of the 5.8%/yr leverage cost. Source: `output/risk_parity_eval_asym4
   0.921, Dnβ 0.585 > Upβ 0.432. Unchanged (long-only risk parity).
 - **Avoid:** **EW-AsymVol-Short** (−1.16%, Dnβ 0.284 >> Upβ 0.024 — vol hysteresis shorts
   the rebound), **EW-DDStop-Short** (lagging triggers), and the round-3 laggards.
+
+## 5e. Comparison menu — round 5 (measured, out-of-sample)
+
+Round 5 implemented the lever round 4b identified: a **decoupled insurance overlay**
+(§3f). The long base never flips (stays at `base_w` every month → Upβ inherits the
+long-only base's positive equity beta), and a *separate additive* short overlay on the
+equity sleeves fires only on a downside signal and is flat otherwise. Five presets sweep
+the overlay size (`w_hedge` 1.0 / 1.5 / 2.0) and the downside signal (`dma`, `ma`,
+`dd_stop`). The canonical run is `output/risk_parity_eval_asym5/report_eval.md`
+(27 schemes, 76,059 TRAIN trials; §1–4 byte-identical to the round-4b anchor, confirming
+the new code path is opt-in).
+
+Menu (the five EW-Hedge presets in context with AW, the RP winner, and the strongest
+prior flavors). Reading the asymmetric columns: Upβ = β to equity on equity-up months;
+Dnβ = β on equity-down months; Dn-corr = corr with equity on equity-down months.
+
+| Portfolio | Ann ret | Sharpe | MaxDD | Both-down | Upβ | Dnβ | Dn-corr | Gross | Lev cost/yr | DSR | Sharpe CI |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| All-Weather | 7.37% | **1.055** | -12.31% | -18.74% | 0.327 | 0.475 | 0.793 | 1.00 | 0.00% | — | — |
+| RP winner (MinVar) | 9.94% | **0.945** | -15.98% | -31.91% | 0.406 | 0.619 | 0.708 | 1.00 | 0.00% | — | — |
+| EW-AsymMA-Tight (r4b) | 3.85% | **0.642** | -13.82% | -10.91% | 0.057 | 0.271 | 0.417 | 1.00 | 0.00% | -0.67 | [-0.01, 1.58] |
+| EW-MA-Short (r3) | 4.25% | **0.613** | -14.02% | -12.97% | 0.013 | 0.123 | 0.224 | 1.00 | 0.00% | -0.70 | [-0.08, 1.40] |
+| **EW-Hedge-MA** | 3.60% | **0.463** | -18.19% | -20.17% | 0.127 | 0.362 | 0.510 | 0.90 | 0.00%¹ | -0.85 | [-0.20, 1.34] |
+| **EW-Hedge-DMA-1** | 3.53% | **0.393** | -20.55% | -25.35% | 0.240 | 0.583 | 0.642 | 1.00 | 0.00%¹ | -0.92 | [-0.18, 1.31] |
+| **EW-Hedge-DD** | 3.16% | **0.346** | -22.43% | -26.08% | 0.182 | 0.586 | 0.645 | 1.00 | 0.00%¹ | -0.97 | [-0.29, 1.30] |
+| **EW-Hedge-DMA** | 2.03% | **0.234** | -22.43% | -22.50% | 0.129 | 0.524 | 0.581 | 1.00 | 0.00%¹ | -1.08 | [-0.37, 1.15] |
+| **EW-Hedge-DMA-2** | 2.03% | **0.207** | -18.12% | -28.02% | 0.015 | 0.391 | 0.400 | 1.00 | 0.00%¹ | -1.10 | [-0.40, 0.93] |
+
+> ¹ The `Gross` / `Lev cost/yr` columns report the **last TEST month's netted**
+> `|last_w|.sum()` and `(that − 1)·5.8%`, *not* the average additive gross. The overlay's
+> leverage cost **is** charged in the net return every month it fires (additive
+> `|long_leg| + |overlay|` gross, line 980); the column simply under-reports it because it
+> snapshots one netted month. EW-Hedge-MA's gross 0.90 means the overlay was net-short
+> equity in the final month (the −1.5× hedge netted the equity sleeve past zero and pulled
+> `|pos|.sum()` below 1).
+
+### What round 5 changed, measured
+
+- **The decoupled overlay FIXED Upβ.** All five EW-Hedge presets have **positive Upβ
+  (0.015–0.240)** — exactly the round-4b structural blocker (Upβ stuck at −0.11 because a
+  `gate_mode=short` gate flips the long book short through recoveries) is resolved by the
+  never-flipping long base. This is the construction's first-order win: the upside is now
+  genuinely *kept*.
+- **But Dnβ did NOT go negative.** Dnβ stayed **strongly positive (0.362–0.586)** across
+  all five presets, and **Dnβ ≫ Upβ in every single one** (the property Upβ > Dnβ is still
+  not met). The additive equity short (`w_hedge·base_w[eq]`) only offsets the *equity*
+  sleeve's downside; it does not offset the bond / gold / commodity sleeves that *also*
+  fall in both-down (stagflation) months, and the `dma`/`ma` downside signal does not
+  reliably fire *in* the down-months (whipsaw / lag — the signal turns on after the drop),
+  so the months that actually need hedging are often hedged late or not at all.
+- **Both-down is WORSE than the round-4b hysteretic family.** EW-Hedge both-down is
+  **−20% to −28%**, vs EW-AsymMA-Tight's **−10.91%** and EW-MA-Short's **−12.97%**. The
+  additive overlay adds gross (→ leverage cost) and whipsaws, but — firing only on equity
+  and only when the lagging signal agrees — it does not buy enough downside dampening to
+  cover its cost in the both-down regime that dominates the worst months.
+- **Return is below AW in every preset** (best EW-Hedge-MA 3.60% < AW 7.37%), and every
+  preset's DSR is negative (−0.85 to −1.10) with a Sharpe CI whose lower bound is below
+  zero — i.e. none is statistically significant, and the family shares sleeves
+  (effective N ≪ nominal N) on one TRAIN/TEST split.
+
+### Verdict (round 5)
+
+The decoupled overlay is a **genuine structural fix for the upside half** (Upβ is positive
+by construction now, the round-4b blocker is gone) but it **failed on the downside half**:
+Dnβ is still strongly positive and in fact *larger* than Upβ, so the brief's
+"correlated up, **not** down" property is **still not satisfied** — now for the *opposite*
+reason than round 4b (round 4b: Upβ driven negative; round 5: Dnβ won't come down). An
+**equity-only** downside overlay cannot protect the both-down (stagflation) months where
+bonds and duration fall *with* equities, and a slow `dma`/`ma` gate fires too late to
+hedge the months that actually hurt. No EW-Hedge preset beats All-Weather's 7.37% / 1.055
+net OOS.
+
+### Top picks (round 5 — the menu updated)
+
+- **Best of the EW-Hedge family (and the round-5 representative):** **EW-Hedge-MA** —
+  3.60% / Sharpe 0.463, Upβ **0.127 (positive)**, Dnβ 0.362, Dn-corr 0.510, gross 0.90,
+  DSR −0.85. The `ma` (symmetric 12m) signal whipsawed least and kept the highest Sharpe
+  of the family; Upβ is genuinely positive (the never-flip base working). But Dnβ 0.362 >
+  Upβ 0.127 — the asymmetric property is not met, and return is < AW.
+- **Highest Upβ of the family (purest "kept the upside"):** **EW-Hedge-DMA-1** — Upβ
+  **0.240** (highest of any round-5 preset), Dnβ 0.583. The smallest hedge (w_hedge 1.0)
+  disturbs the long base least → most upside kept → but also the least downside hedge.
+- **"Protected down" champion is STILL a round-4b flavor, not a round-5 one:**
+  **EW-AsymMA-Tight** (both-down −10.91%, Dn-corr 0.417) and **EW-MA-Short** (both-down
+  −12.97%, Upβ 0.013) both protect the both-down regime better than *any* EW-Hedge preset.
+  Round 5's overlay did not dethrone them on downside; it only fixed Upβ — at the cost of
+  making both-down worse.
+- **Best return (beats AW, no asymmetry):** **RP winner (MinVar)** — 9.94% / Sharpe 0.945,
+  Dnβ 0.619 > Upβ 0.406. Unchanged (long-only risk parity).
+- **The next lever (round 6, not yet run):** the overlay must short the sleeves that fall
+  in both-down — **bonds / duration** (the brief's "long-term short a ticker" = short
+  TLT / long-duration as a *conditional* overlay that fires on the same downside signal),
+  not equity alone — and/or use a downside signal that reliably activates *in* equity-down
+  months (e.g. a fast equity-drawdown trigger rather than the sleeve's own lagging trend).
+  Shorting duration in the both-down regime is the direct mechanical fix for the
+  "bonds fall with equities" gap that keeps Dnβ positive.
 
 *Research / illustration only. Not investment advice.*

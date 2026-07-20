@@ -351,6 +351,91 @@ sweep construction: the slow_entry {6,9} grid, EW-AsymMA-Tight, the asym_vol con
 §5d (round-4b measured menu + verdict + top picks), round-4b reproduction command, canonical-
 reports list.
 
+## TrendProtect round 5 — decoupled insurance overlay (2026-07-20)
+Round 4b settled that shorting equity through a single price-gate is structural to killing
+Upβ (the gate flips the long book short through recoveries). Round 5 implements the lever
+4b identified: **decouple the two halves** — a *long-only base that never flips* (stays at
+`base_w` every month → Upβ inherits the long base's positive equity beta) plus a
+**separate additive short overlay** on the equity sleeves that fires ONLY on a downside
+signal and is flat otherwise. The brief's "long-term short a ticker" permission, applied as
+an overlay (not a gate) on a separate notional.
+
+Five new presets in `FLAVOR_PRESETS` (`risk_parity_eval.py`), all EW-base +
+`gate_mode="overlay"`, sweeping the overlay size and downside signal:
+
+- **EW-Hedge-DMA-1 / -DMA / -DMA-2** — `w_hedge` ∈ {1.0, 1.5, 2.0}, `gate_signal="dma"`
+  (symmetric 12m dual-MA — fast-OFF in recoveries, unlike `asym_ma`).
+- **EW-Hedge-MA** — `w_hedge=1.5`, `gate_signal="ma"` (symmetric 12m MA).
+- **EW-Hedge-DD** — `w_hedge=1.5`, `gate_signal="dd_stop"` (drawdown stop).
+
+Implementation: `_backtest_flavor` gains a `w_hedge` param (0 default) and a
+`gate_mode="overlay"` branch. The long base NEVER flips (stays `base_w`); the overlay
+`ol[eq] = -w_hedge * base_w[eq]` activates only on `is_eq & (gd < 0)`, flat otherwise.
+`pos_target = long_leg + ol`; **gross is ADDITIVE** (`|long_leg|.sum() + |ol|.sum()`, not
+sleeve-netted) → leverage cost charged on the excess gross every month the overlay fires.
+`w_hedge > 1` ⇒ net-short equity in down-months. **Opt-in verified two ways:** (1) regression
+guard — `output/rp_reg5/report_eval.md` §1–4 byte-identical to the round-4b anchor
+`output/risk_parity_eval_asym4b/report_eval.md` (`diff` clean); (2) rolling selection
+2018–2026 byte-identical. Existing presets use `w_hedge=0` and `gate_mode` ∈ {cash, short}
+→ `ol` stays zeros, gross uses netted `|pos_target|.sum()` → byte-identical to round 4b.
+
+**Canonical run:** `output/risk_parity_eval_asym5/report_eval.md` (regenerable:
+`.venv/bin/python risk_parity_eval.py --score-mode asymmetric2 --schemes
+EW,InvVol,InvVar,ERC,MinVar,LS-TSMOM,TrendGate,TG-Short,TG-Short-LS,TG-Short-6m,EW-Short,
+EW-Short-LS,EW-Short-6m,EW-MA-Short,EW-Vol-Short,EW-DMA-Short,EW-AsymMA-Short,EW-DDStop-Short,
+EW-AsymMA-Short-6,EW-AsymMA-Short-9,EW-AsymMA-Tight,EW-AsymVol-Short,EW-Hedge-DMA-1,EW-Hedge-DMA,
+EW-Hedge-DMA-2,EW-Hedge-MA,EW-Hedge-DD
+--rolling-schemes EW,MinVar,LS-TSMOM --bootstrap 2000 --out-dir output/risk_parity_eval_asym5`).
+76059 TRAIN trials, 27 schemes. (Note: adding 5 schemes shifts the percentile-ranked
+asymmetric2 score → TRAIN-selected combos differ from round 4b for shared schemes; this is
+the documented relative-score nuance, not a regression.)
+
+**Measured verdict (round 5, honest) — the overlay FIXED the upside half but FAILED the
+downside half; the brief's property is still not met, now for the opposite reason:**
+1. **Upβ is now POSITIVE (0.015–0.240) across all five EW-Hedge presets** — the round-4b
+   structural blocker (Upβ stuck at −0.11) is genuinely resolved by the never-flipping
+   long base. This is the construction's first-order win.
+2. **Dnβ stayed strongly POSITIVE (0.362–0.586), and Dnβ ≫ Upβ in every preset.** The
+   property Upβ > Dnβ is **still not met** — now because Dnβ won't come down (round 4b was
+   the opposite: Upβ driven negative). An equity-only additive short offsets only the
+   equity sleeve's downside; it does NOT offset bonds/gold/commodities, which ALSO fall in
+   both-down (stagflation) months. And the `dma`/`ma` downside signal fires too late
+   (whipsaw/lag — turns on after the drop), so the months that need hedging are hedged
+   late or not at all.
+3. **Both-down is WORSE (−20% to −28%) than the round-4b hysteretic family**
+   (EW-AsymMA-Tight −10.91%, EW-MA-Short −12.97%). The overlay adds gross → leverage cost
+   and whipsaws, but — firing only on equity and only when the lagging signal agrees — it
+   buys less downside dampening than it costs in the both-down regime that dominates the
+   worst months.
+4. **No EW-Hedge preset beats 7.37%/1.055** (best EW-Hedge-MA 3.60%/0.463); every DSR is
+   negative (−0.85 to −1.10) with Sharpe-CI lower bounds below zero. Best of family:
+   **EW-Hedge-MA** (Sharpe 0.463, Upβ 0.127). Highest Upβ: **EW-Hedge-DMA-1** (0.240).
+   The "protected down" champion is STILL a round-4b flavor (EW-AsymMA-Tight / EW-MA-Short),
+   not a round-5 one.
+
+**Reporting caveat:** the §10 `Gross` / `Lev cost/yr` columns report the LAST TEST month's
+netted `|last_w|.sum()` (and `(that−1)·5.8%`), not the average additive gross — so they
+under-report the overlay flavors' leverage cost (which IS charged in net every month it
+fires, additive gross at line 980). EW-Hedge-MA's gross 0.90 = overlay net-short equity in
+the final month. A future run should report the *average* additive gross / annualized lev
+cost for overlay flavors for honesty.
+
+**The round-5 finding (what it settled):** the decoupled overlay is the right *construction*
+(Upβ is positive by construction now — round 4b's blocker is gone) but an **equity-only**
+downside overlay is the wrong *instrument* — it cannot protect both-down (stagflation)
+months where bonds/duration fall with equities, and a slow `dma`/`ma` gate fires too late.
+**Round 6 = extend the overlay to short the both-down sleeves (bonds / duration — the
+brief's "short a ticker" = short TLT / long-duration as a conditional overlay that fires on
+the same downside signal), not equity alone**, and/or use a downside signal that reliably
+activates IN equity-down months (a fast equity-drawdown trigger, not the sleeve's own
+lagging trend). Shorting duration in both-down is the direct mechanical fix for the
+"bonds fall with equities" gap that keeps Dnβ positive.
+
+Docs: `docs/portfolio-flavors.md` updated — intro ("six rounds"), §3f (the decoupled-overlay
+construction: the never-flip base, the additive short overlay, the up/down-month
+pseudocode, the five presets), §5e (round-5 measured menu + verdict + top picks + the
+reporting caveat + the round-6 lever), round-5 reproduction command, canonical-reports list.
+
 ## Next steps (open) — risk parity
 - A proper OOS multiple-comparison test (Holm/Bonferroni over effective-N, or DSR on the
   TRAIN max) — currently only disclosed, not implemented.
