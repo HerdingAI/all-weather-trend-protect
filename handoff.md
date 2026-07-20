@@ -48,6 +48,45 @@ TRAIN-selected LS-TSMOM combo and its numbers slightly between runs — the rege
 report's numbers are authoritative; the `docs/peer-review.md` "Measured outcomes" block
 matches them.
 
+## TrendProtect flavor round (2026-07-20, this branch)
+Extended `risk_parity_eval.py` to answer the next brief: *find an All-Weather
+variant with higher expected return while keeping equity correlation asymmetric
+(correlated up, protected down)*. Two commits on this branch (`817ae65`, `85cd3c5`):
+
+- **Four TrendProtect flavors** as presets of one `_backtest_flavor` engine, each a
+  long MinVar base leg plus overlays: **TrendGate** (gate equity sleeves to cash when
+  trailing-12m < 0, gross ≤1), **RP-LS-Overlay** (+0.30 dollar-neutral LS-TSMOM overlay,
+  gross 1.30), **StructShort** (permanent sleeve-level net-short US Treasuries 0.30,
+  netting so gross ≤1), **TG-LS-Overlay** (gate + 0.20 LS overlay, gross 1.20).
+- **Asymmetric metrics** in `compute_metrics`: `upside_beta`/`downside_beta`/
+  `updown_beta_diff`/`downside_corr_eq`/`up_market_ann`/`down_market_ann` (equity
+  ref = external SPY). **`--score-mode asymmetric`** = 0.30·Sharpe + 0.20·(upβ−dnβ)
+  + 0.20·(−dn_corr) + 0.15·both-down + 0.15·(−maxDD); selection TRAIN-only (guard
+  unchanged). **`--lev-rate 0.058`** (5.8% APR) charged monthly on gross>1.
+- **Report §10** = ranked comparison menu (4 flavors + AW + MinVar winner + LS-TSMOM)
+  with Upβ/Dnβ/Dn-corr/gross/lev cost/DSR/bootstrap CI + per-flavor pros/cons + verdict.
+- **`docs/portfolio-flavors.md`** = full 10-flavor catalog (construction, composition,
+  parameters, pros/cons, regime wins/loses) + the measured menu.
+
+Canonical asymmetric run: `output/risk_parity_eval_asym/report_eval.md`
+(regenerable: `.venv/bin/python risk_parity_eval.py --score-mode asymmetric`).
+**Measured verdict (honest):** **no TrendProtect flavor beats All-Weather's 7.37%
+net OOS** after the 5.8% leverage cost in this window. The flavors buy a much better
+*risk* profile — **TrendGate** leads on Sharpe (1.385 vs AW 1.055), MaxDD (−4.20% vs
+−12.31%), both-down (−4.50% vs −18.74%) — at ~3%/yr of return. The asymmetric goal is
+**only weakly met**: the gate keeps Upβ and Dnβ **both low** (gate mostly flats
+equity → combos run bond/gold/commodity-heavy) and Dnβ slightly **exceeds** Upβ
+(the documented 12m lag works *against* the asymmetric shape). LS-TSMOM is the only
+Upβ<0 flavor but DSR −1.22 (insignificant). Regression guard (default score,
+COV-only): canonical numbers byte-identical (MinVar 1.518/−11.42%/−5.61; AW
+1.055/−18.74%); new code paths are opt-in.
+
+**Honest caveats:** StructShort = sleeve-level netting (gross ≤1, no lev cost) —
+ticker-level shorting that *adds* gross is a flagged refinement, not implemented.
+Trend-gate lag is a construction property, not a bug. One TRAIN/TEST split = one
+regime; flavors share sleeves → DSR conservative (effective N ≪ nominal); trust the
+bootstrap CI.
+
 ## Next steps (open) — risk parity
 - A proper OOS multiple-comparison test (Holm/Bonferroni over effective-N, or DSR on the
   TRAIN max) — currently only disclosed, not implemented.
