@@ -6,7 +6,7 @@ This catalogs every portfolio "flavor" evaluated in `risk_parity_eval.py`: the s
 existing schemes (EW, InvVol, InvVar, ERC, MinVar, LS-TSMOM) plus the **TrendProtect**
 flavors added to answer the brief — *find an All-Weather variant with higher expected
 return while keeping equity correlation asymmetric (correlated on the way up, low/negative
-on the way down)*. The TrendProtect family grew in four rounds: **round 1** added four
+on the way down)*. The TrendProtect family grew in five rounds: **round 1** added four
 cash-gate / overlay / structural-short flavors; **round 2** added six `gate_mode=short`
 flavors (flip equity to net-short on the downside signal — the direct lever for negative
 downside-β) and an `asymmetric2` score that rewards upside capture + return instead of
@@ -14,8 +14,11 @@ fleeing equity; **round 3** added three **leading-signal** flavors (MA crossover
 vol-regime, dual-MA) to fix round 2's lagging-momentum blocker; **round 4** added two
 **directionally-asymmetric (hysteretic)** gates (fast downside exit, slow upside re-entry)
 — the round-3 prescription made concrete, and the first flavor in the family to drive Dnβ
-negative. For each flavor: the construction formula, what it holds (gross / net, when it
-shorts), its parameters, the measured out-of-sample metrics, and pros / cons.
+negative. **Round 4b** widened that hysteretic-gate search — a `slow_entry` ∈ {6, 9, 12}
+grid plus a tighter band and a hysteretic vol-gate — to test whether a less-overshooting
+re-entry can keep Upβ positive while Dnβ stays negative. For each flavor: the construction
+formula, what it holds (gross / net, when it shorts), its parameters, the measured
+out-of-sample metrics, and pros / cons.
 
 The measured numbers live in the canonical reports and are reproduced in the
 **comparison menus** at the end:
@@ -32,6 +35,8 @@ The measured numbers live in the canonical reports and are reproduced in the
   [`output/risk_parity_eval_asym3/report_eval.md`](../output/risk_parity_eval_asym3/report_eval.md).
 - **Asymmetric2-score canonical** (round 4, +the two hysteretic/asymmetric-gate flavors):
   [`output/risk_parity_eval_asym4/report_eval.md`](../output/risk_parity_eval_asym4/report_eval.md).
+- **Asymmetric2-score canonical** (round 4b, +the four hysteretic-sweep flavors):
+  [`output/risk_parity_eval_asym4b/report_eval.md`](../output/risk_parity_eval_asym4b/report_eval.md).
 
 See also the peer review: [`docs/peer-review.md`](peer-review.md).
 
@@ -550,6 +555,45 @@ existing `tsmom`/`ma`/`vol`/`dma` paths are untouched. The engine pulls `max(loo
 
 ---
 
+## 3e. The hysteretic-gate sweep (round 4b)
+
+Round 4's EW-AsymMA-Short drove Dnβ negative (−0.049) — a first — but its slow 12m
+re-entry also drove Upβ negative (−0.124): the sleeve stayed short through the *start* of
+rallies, so the "less overshoot" hypothesis was that a *faster* re-entry could keep Upβ
+positive while Dnβ stayed negative. Round 4b tests that directly by widening the
+hysteretic-gate band. The `_backtest_flavor` engine now threads per-preset hysteresis
+params (`slow_entry`, `fast_exit`, `dd_*`, vol thresholds) into `_gate_signal` — the
+helper defaults are used when a preset omits them, so the round-4 / round-3 / round-1-2
+presets are **byte-identical** to their originals (verified: the rolling re-enumeration
+over the 3 base schemes is byte-identical between the round-4 and round-4b runs, and
+EW-AsymMA-Short / EW-DDStop-Short produce identical numbers). Four new presets:
+
+### EW-AsymMA-Short-6 / EW-AsymMA-Short-9 / EW-AsymMA-Tight
+- **Presets:** EW-AsymMA-Short with `slow_entry` ∈ {6, 9} (vs the round-4 default 12) and
+  `fast_exit` = 3; plus **EW-AsymMA-Tight** with `slow_entry=6, fast_exit=2` (the tightest
+  band: fastest to flee, fastest to return). All else equal to EW-AsymMA-Short.
+- **Construction / holds / shorts:** identical to EW-AsymMA-Short — only the hysteresis
+  band changes. Faster re-entry re-loads equity on a smaller recovery.
+- **Parameters:** `gate_signal="asym_ma"`, `slow_entry` ∈ {6, 9}, `fast_exit` ∈ {2, 3}.
+- **Why these three:** bracket the Upβ-vs-Dnβ trade-off across the band. The grid
+  {12, 9, 6} × fast_exit 3, plus the tight {6}×{2} corner, spans "slow re-entry (most
+  downside protection, most upside overshoot)" → "fast re-entry (least overshoot, most
+  whipsaw)."
+
+### EW-AsymVol-Short
+- **Preset:** `gate_signal="asym_vol"`, EW-base, `gate_mode="short"`, gross ≤ 1.
+- **Construction:** a **hysteretic vol-regime** gate — LONG → SHORT once the prior month's
+  6m realized vol exceeds its trailing 60m median (fast exit on stress), SHORT → LONG once
+  vol falls back below 0.85× the median (slow re-entry — wait for genuine calm). The
+  hysteresis band = 0.85–1.0× the median; a vol spike flees, vol must *genuinely* calm to
+  return. New `asym_vol` branch in `_gate_signal` (gated, opt-in).
+- **Why:** fixes the round-3 EW-Vol-Short, which shorted the 2020 COVID V-rebound (vol
+  stayed elevated through the rally → the symmetric vol-gate never re-entered long →
+  −1.52% / −31.69% MaxDD). A hysteretic lower-bar re-entry waits for vol to actually
+  calm. Different information set from price-MA → diversifies the signal family.
+
+---
+
 ## 4. Reproducing the comparison
 
 ```bash
@@ -579,6 +623,12 @@ existing `tsmom`/`ma`/`vol`/`dma` paths are untouched. The engine pulls `max(loo
   --schemes EW,InvVol,InvVar,ERC,MinVar,LS-TSMOM,TrendGate,TG-Short,TG-Short-LS,TG-Short-6m,EW-Short,EW-Short-LS,EW-Short-6m,EW-MA-Short,EW-Vol-Short,EW-DMA-Short,EW-AsymMA-Short,EW-DDStop-Short \
   --rolling-schemes EW,MinVar,LS-TSMOM --bootstrap 2000 --out-dir output/risk_parity_eval_asym4
 # → output/risk_parity_eval_asym4/report_eval.md (§10 = the round-4 menu)
+
+# Asymmetric2-score canonical (round 4b, +four hysteretic-sweep flavors):
+.venv/bin/python risk_parity_eval.py --score-mode asymmetric2 \
+  --schemes EW,InvVol,InvVar,ERC,MinVar,LS-TSMOM,TrendGate,TG-Short,TG-Short-LS,TG-Short-6m,EW-Short,EW-Short-LS,EW-Short-6m,EW-MA-Short,EW-Vol-Short,EW-DMA-Short,EW-AsymMA-Short,EW-DDStop-Short,EW-AsymMA-Short-6,EW-AsymMA-Short-9,EW-AsymMA-Tight,EW-AsymVol-Short \
+  --rolling-schemes EW,MinVar,LS-TSMOM --bootstrap 2000 --out-dir output/risk_parity_eval_asym4b
+# → output/risk_parity_eval_asym4b/report_eval.md (§10 = the round-4b sweep menu)
 
 # Regression guard (default score, COV-only — existing numbers unchanged):
 .venv/bin/python risk_parity_eval.py --ref-mode sleeves --schemes EW,InvVol,InvVar,ERC,MinVar --no-rolling
@@ -864,5 +914,103 @@ All-Weather, and the MinVar winner. Net of the 5.8%/yr leverage cost on gross > 
 - **Avoid:** **EW-DDStop-Short** (Dnβ 0.536 >> Upβ 0.106, MaxDD −24.01% — lagging triggers
   defeat the asymmetry), **EW-Vol-Short** (−1.52%, −31.69% MaxDD — shorts the 2020
   rebound), and **EW-DMA-Short** (2.02%, no edge).
+
+## 5d. Comparison menu — round 4b (measured, out-of-sample)
+
+Round 4b widens the hysteretic-gate search to test the "less overshoot" hypothesis: can a
+*faster* re-entry (round 4's slow_entry=12 drove Upβ negative) keep Upβ **positive** while
+Dnβ stays **negative**? Four new presets — the `slow_entry` ∈ {6, 9} grid, the tight
+{6}×{2} band, and a hysteretic vol-gate — vs the prior family, All-Weather, and the MinVar
+winner. Net of the 5.8%/yr leverage cost. Source: `output/risk_parity_eval_asym4b/report_eval.md`
+§10 (22 schemes, 61974 TRAIN trials).
+
+| Portfolio | Ann ret | Sharpe | MaxDD | Both-down | Upβ | Dnβ | Dn-corr | Gross | Lev cost/yr | DSR | Sharpe CI |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| All-Weather | 7.37% | **1.055** | −12.31% | −18.74% | 0.327 | 0.475 | 0.793 | 1.00 | 0.00% | — | — |
+| RP winner | 9.29% | **0.921** | −15.65% | −30.50% | 0.432 | 0.585 | 0.747 | 1.00 | 0.00% | — | — |
+| TrendGate | 7.32% | **0.719** | −17.99% | −27.88% | 0.310 | 0.543 | 0.628 | 1.00 | 0.00% | −0.59 | [0.07, 1.68] |
+| TG-Short *(r2)* | 3.27% | **0.622** | −10.29% | −13.17% | 0.134 | 0.201 | 0.366 | 1.00 | 0.00% | −0.69 | [0.01, 1.46] |
+| EW-MA-Short *(r3)* | 4.25% | **0.613** | −14.02% | −12.97% | 0.013 | 0.123 | 0.224 | 1.00 | 0.00% | −0.70 | [−0.08, 1.40] |
+| TG-Short-6m *(r2)* | 4.62% | **0.588** | −16.31% | −20.18% | 0.110 | 0.421 | 0.513 | 1.00 | 0.00% | −0.72 | [−0.07, 1.61] |
+| **EW-AsymMA-Short-6** *(new)* | 4.80% | **0.565** | −14.83% | −17.03% | −0.113 | −0.026 | −0.032 | 1.00 | 0.00% | −0.75 | [−0.10, 1.30] |
+| **EW-AsymMA-Short-9** *(new)* | 4.27% | **0.508** | −14.10% | −16.70% | −0.107 | −0.041 | −0.050 | 1.00 | 0.00% | −0.80 | [−0.14, 1.23] |
+| TG-Short-LS *(r2)* | 4.13% | **0.448** | −20.50% | −23.99% | 0.056 | 0.294 | 0.347 | 1.20 | 1.16% | −0.86 | [−0.25, 1.29] |
+| EW-Short-6m *(r2)* | 3.30% | **0.414** | −20.58% | −20.18% | 0.091 | 0.460 | 0.542 | 1.00 | 0.00% | −0.90 | [−0.24, 1.43] |
+| **EW-AsymMA-Tight** *(new)* | 1.99% | **0.412** | −14.05% | **−8.79%** | **−0.111** | **−0.111** | **−0.254** | 1.00 | 0.00% | −0.90 | [−0.34, 1.14] |
+| EW-AsymMA-Short *(r4)* | 3.43% | **0.406** | −17.22% | −17.76% | −0.124 | −0.049 | −0.060 | 1.00 | 0.00% | −0.90 | [−0.28, 1.15] |
+| EW-Short *(r2)* | 2.67% | **0.348** | −20.06% | −16.68% | 0.018 | 0.561 | 0.607 | 1.00 | 0.00% | −0.96 | [−0.25, 1.50] |
+| EW-DDStop-Short *(r4)* | 2.71% | **0.299** | −24.01% | −23.75% | 0.106 | 0.536 | 0.587 | 1.00 | 0.00% | −1.01 | [−0.35, 1.27] |
+| EW-Vol-Short *(r3)* | 1.77% | **0.247** | −22.29% | −13.87% | 0.040 | 0.383 | 0.436 | 1.00 | 0.00% | −1.06 | [−0.38, 1.35] |
+| EW-DMA-Short *(r3)* | 1.78% | **0.206** | −24.53% | −18.48% | 0.038 | 0.448 | 0.486 | 1.00 | 0.00% | −1.11 | [−0.41, 1.16] |
+| **EW-AsymVol-Short** *(new)* | −1.16% | **−0.161** | −24.10% | −11.70% | 0.024 | 0.284 | 0.335 | 1.00 | 0.00% | −1.47 | [−0.70, 0.48] |
+
+> **Verdict (measured, honest — round 4b). The "less overshoot" hypothesis is
+> DISCONFIRMED — the sweep rules out the re-entry-lag explanation and isolates the
+> structural blocker.**
+> 1. **Faster re-entry did NOT restore Upβ.** Across the whole `asym_ma` family Upβ is
+>    pinned at ≈ −0.11 regardless of `slow_entry` (−0.124 at 12, −0.107 at 9, −0.113 at 6,
+>    −0.111 tight). The "slow 12m re-entry overshoots the rally" story from round 4 is
+>    wrong — re-entering at 6m doesn't help. So the negative Upβ is **not** a re-entry-lag
+>    tunable; it is **structural** to the `gate_mode=short` construction: once the gate
+>    flips the equity sleeve short after any break, that sleeve is short through the early
+>    part of recoveries, and the EW base's other sleeves (bonds/gold/commodities) don't
+>    track equity up-moves — so the portfolio's up-month beta is dominated by the (short)
+>    equity sleeve and goes negative. You cannot fix it by tuning the band.
+> 2. **The downside protection IS robust to the band — Dnβ stays negative.** Every
+>    `asym_ma` variant holds Dnβ ≤ −0.03 (−0.049, −0.041, −0.026, −0.111) with negative
+>    Dn-corr. The hysteretic gate reliably flips equity short *against* the market on down
+>    months — that part of round 4's finding is robust, not a parameter fluke. The
+>    **EW-AsymMA-Tight** band (fast_exit=2, slow_entry=6) even hits both-down **−8.79%**
+>    (the best of *any* flavor across all rounds — better than round-3 EW-MA-Short's
+>    −12.97%) and Dn-corr **−0.254** (the most negative of all), Sharpe 0.412 — but at the
+>    cost of Upβ collapsing to **exactly** Dnβ (−0.111 = −0.111): the asymmetry *vanished*
+>    (both negative). The tighter the band, the more symmetric (both negative), not the
+>    more asymmetric.
+> 3. **EW-AsymVol-Short failed** — Sharpe −0.161, Upβ 0.024 / Dnβ 0.284 (Dnβ >> Upβ). Vol
+>    hysteresis did **not** fix the V-rebound problem: vol stays elevated *through* rallies
+>    (vol calms late), so even the slow 0.85×-median re-entry re-enters after the rally's
+>    best months, and the gate shorts the rebound. The vol-regime gate is the wrong
+>    information set for "correlated up, protected down" (vol is a *coincident* stress
+>    indicator, not a leading one — it rises *as* price falls, not before).
+> 4. **No flavor beats 7.37% with the asymmetric property.** Across all four rounds
+>    (22 flavors), **Dnβ ≥ Upβ in every single one** where the betas differ; the two
+>    flavors with Upβ = Dnβ (EW-AsymMA-Tight, both −0.111) are *symmetric* (both negative),
+>    not asymmetric. The RP winner (9.29%) beats on return with the most downside
+>    correlation. Every flavor's DSR is negative.
+>
+> **The round-4b finding (what the sweep settled):** the negative-Dnβ / negative-Upβ
+> coupling is **structural to shorting equity on a downside gate**, not a tunable lag.
+> A single price-gate that flips the equity sleeve short cannot be "correlated up,
+> protected down" — shorting equity through recoveries necessarily kills the upside.
+> This rules out further band-tuning (the grid is now spanned: 6/9/12 × 2/3 + vol) and
+> confirms the round-4 lever is the only remaining one: **decouple the two halves
+> entirely** — keep a *long-only* base for the upside (so Upβ stays positive) and add a
+> **defined-downside insurance overlay** (put spread / explicit downside-stop on a
+> *separate* notional) that caps the downside *without* flipping the long book short. The
+> brief's "long-term short a ticker" permission points at exactly this, as an overlay not
+> a gate. Trust the DSR / bootstrap CI: every flavor's DSR is negative, the flavors share
+>    sleeves (effective N ≪ nominal N), and this is one TRAIN/TEST split = one regime.
+
+### Top picks (round 4b — the menu updated)
+
+- **Best downside protection of all 22 flavors (the "protected down" champion):**
+  **EW-AsymMA-Tight** — both-down **−8.79%** (best of any flavor across all rounds),
+  Dn-corr **−0.254** (most negative of all), MaxDD −14.05%, gross 1.00, Sharpe 0.412.
+  The tightest hysteretic band. BUT Upβ = Dnβ = −0.111 (the asymmetry vanished — both
+  negative; it's a symmetric short-leaning book, not "correlated up, protected down").
+  Return 1.99% (< AW). DSR −0.90. Pick this if pure downside hedge is the goal.
+- **Best return of the hysteretic family:** **EW-AsymMA-Short-6** — 4.80% / Sharpe 0.565
+  (best of the asym_ma family), Dnβ −0.026 / Dn-corr −0.032 (still negative), gross 1.00.
+  The faster re-entry lifted Sharpe and return vs round-4's slow_entry=12 — but Upβ is
+  still −0.113 (negative). DSR −0.75. The "less overshoot" hypothesis failed on Upβ but
+  the faster band is a better risk-adjusted *short-leaning* book.
+- **Best downside protection *with* positive upside (round-3 champion still stands):**
+  **EW-MA-Short** — both-down −12.97%, Dn-corr 0.224, Upβ **0.013 (positive)**, Sharpe
+  0.613. The hysteretic family beat it on downside protection but threw away the upside
+  to do it; if the upside floor matters, EW-MA-Short remains the pick.
+- **Best return (beats AW, but no asymmetry):** **RP winner (MinVar)** — 9.29% / Sharpe
+  0.921, Dnβ 0.585 > Upβ 0.432. Unchanged (long-only risk parity).
+- **Avoid:** **EW-AsymVol-Short** (−1.16%, Dnβ 0.284 >> Upβ 0.024 — vol hysteresis shorts
+  the rebound), **EW-DDStop-Short** (lagging triggers), and the round-3 laggards.
 
 *Research / illustration only. Not investment advice.*

@@ -382,7 +382,9 @@ SCHEME_ORDER = ["EW", "InvVol", "InvVar", "ERC", "MinVar", "LS-TSMOM",
                 "TG-Short", "TG-Short-LS", "TG-Short-6m",
                 "EW-Short", "EW-Short-LS", "EW-Short-6m",
                 "EW-MA-Short", "EW-Vol-Short", "EW-DMA-Short",
-                "EW-AsymMA-Short", "EW-DDStop-Short"]
+                "EW-AsymMA-Short", "EW-DDStop-Short",
+                "EW-AsymMA-Short-6", "EW-AsymMA-Short-9", "EW-AsymMA-Tight",
+                "EW-AsymVol-Short"]
 # Schemes that solve a covariance-based target weight annually (vs LS-TSMOM,
 # which is a monthly momentum signal with no covariance target).
 COV_SCHEMES = {"EW", "InvVol", "InvVar", "ERC", "MinVar"}
@@ -455,6 +457,24 @@ FLAVOR_PRESETS: Dict[str, dict] = {
                         "gate_signal": "asym_ma", "w_overlay": 0.0, "struct_short": None},
     "EW-DDStop-Short": {"trend_gate": True, "gate_mode": "short", "base_mode": "ew",
                         "gate_signal": "dd_stop", "w_overlay": 0.0, "struct_short": None},
+    # Round-4b sweep -- widen the hysteretic-gate band to test whether a LESS-
+    # overshooting re-entry can keep Upβ positive while Dnβ stays negative (the
+    # round-4 EW-AsymMA-Short with slow_entry=12 drove Upβ negative too: the slow
+    # re-entry stayed short through rally starts). slow_entry in {6, 9, 12} is
+    # the grid; EW-AsymMA-Tight also tightens the fast exit. EW-AsymVol-Short is
+    # a hysteretic vol-gate (a vol spike flees; vol must calm below a lower bar
+    # to return -- fixes the round-3 EW-Vol-Short 2020 V-rebound short).
+    "EW-AsymMA-Short-6": {"trend_gate": True, "gate_mode": "short", "base_mode": "ew",
+                          "gate_signal": "asym_ma", "slow_entry": 6, "fast_exit": 3,
+                          "w_overlay": 0.0, "struct_short": None},
+    "EW-AsymMA-Short-9": {"trend_gate": True, "gate_mode": "short", "base_mode": "ew",
+                          "gate_signal": "asym_ma", "slow_entry": 9, "fast_exit": 3,
+                          "w_overlay": 0.0, "struct_short": None},
+    "EW-AsymMA-Tight": {"trend_gate": True, "gate_mode": "short", "base_mode": "ew",
+                        "gate_signal": "asym_ma", "slow_entry": 6, "fast_exit": 2,
+                        "w_overlay": 0.0, "struct_short": None},
+    "EW-AsymVol-Short": {"trend_gate": True, "gate_mode": "short", "base_mode": "ew",
+                         "gate_signal": "asym_vol", "w_overlay": 0.0, "struct_short": None},
 }
 
 
@@ -595,7 +615,8 @@ def _gate_signal(H: np.ndarray, lookback: int, gate_signal: str,
                  fast: int = 3, slow: int = 10,
                  fast_exit: int = 3, slow_entry: int = 12,
                  dd_window: int = 6, dd_exit: float = 0.10,
-                 dd_entry: float = 0.03) -> np.ndarray:
+                 dd_entry: float = 0.03,
+                 vol_hi_mult: float = 1.0, vol_lo_mult: float = 0.85) -> np.ndarray:
     """Per-month equity-gate direction from a (possibly leading) signal.
 
     ``H`` is the (T_hist, n) monthly-returns history (pre-window + window) for the
@@ -628,6 +649,15 @@ def _gate_signal(H: np.ndarray, lookback: int, gate_signal: str,
                 recovers inside `dd_entry` (slow re-entry, near a new high).
                 Starts LONG. A trailing-stop / "flee the break, wait for a new
                 high" gate -- the most direct map to the brief.
+      * "asym_vol": hysteretic vol-regime (round-4b sweep). LONG -> SHORT once the
+                prior month's `vol_window`-m realized vol exceeds `vol_hi_mult` x
+                its trailing `vol_median`-m median (fast exit on stress), SHORT ->
+                LONG once vol falls back below `vol_lo_mult` x the median (slow
+                re-entry -- wait for genuine calm). Starts LONG. The hysteresis
+                band = vol_lo_mult..vol_hi_mult x median; a vol spike flees, vol
+                must genuinely calm to return (fixes the round-3 EW-Vol-Short
+                which shorted the 2020 COVID V-rebound because vol stayed
+                elevated through the rally).
     All signals are strictly causal (use only data through the prior month)."""
     T, n = H.shape
     sig = np.zeros((T, n))
@@ -695,6 +725,27 @@ def _gate_signal(H: np.ndarray, lookback: int, gate_signal: str,
                 state = np.where(to_short, -1.0, np.where(to_long, 1.0, state))
             sig[t] = state
         return sig
+    if gate_signal == "asym_vol":
+        # Hysteretic vol-regime: a vol spike flees (fast exit), vol must
+        # genuinely calm below a LOWER bar to return (slow re-entry). The
+        # hysteresis band = vol_lo_mult..vol_hi_mult x the trailing median.
+        # Fixes the round-3 EW-Vol-Short, which shorted the 2020 COVID V-rebound
+        # (vol stayed elevated through the rally -> symmetric vol-gate never
+        # re-entered long). Starts LONG.
+        rv = np.zeros((T, n))
+        for t in range(T):
+            if t >= vol_window:
+                rv[t] = H[t - vol_window:t].std(axis=0, ddof=0) * np.sqrt(12.0)
+        state = np.ones(n)
+        for t in range(T):
+            if t >= vol_median:
+                med = np.median(rv[t - vol_median:t], axis=0)
+                prev = rv[t - 1]
+                to_short = (prev > vol_hi_mult * med) & (state > 0.0)
+                to_long = (prev < vol_lo_mult * med) & (state < 0.0)
+                state = np.where(to_short, -1.0, np.where(to_long, 1.0, state))
+            sig[t] = state
+        return sig
     # Fallback: tsmom (so an unknown gate_signal is safe, not a crash).
     for t in range(T):
         if t >= lookback:
@@ -752,6 +803,18 @@ def _backtest_flavor(panel: pd.DataFrame, ret_full: pd.DataFrame,
                if (short_name is not None and short_name in names) else -1)
     # Per-preset lookback override (default = the caller's lookback).
     lookback = int(preset.get("lookback", lookback))
+    # Round-4 hysteretic-gate params (per-preset override; the helper defaults
+    # are used if absent, so the round-4 presets EW-AsymMA-Short / EW-DDStop-Short
+    # and the round-3 ma/vol/dma presets stay byte-identical to their originals).
+    g_fast_exit = int(preset.get("fast_exit", 3))
+    g_slow_entry = int(preset.get("slow_entry", 12))
+    g_dd_window = int(preset.get("dd_window", 6))
+    g_dd_exit = float(preset.get("dd_exit", 0.10))
+    g_dd_entry = float(preset.get("dd_entry", 0.03))
+    g_vol_window = int(preset.get("vol_window", 6))
+    g_vol_median = int(preset.get("vol_median", 60))
+    g_vol_hi = float(preset.get("vol_hi_mult", 1.0))
+    g_vol_lo = float(preset.get("vol_lo_mult", 0.85))
 
     # Trailing momentum per sleeve, with pre-window history so the first
     # ``lookback`` months still get a causal signal (matches _backtest_ls_tsmom).
@@ -770,7 +833,12 @@ def _backtest_flavor(panel: pd.DataFrame, ret_full: pd.DataFrame,
     # Precompute the equity-gate signal (per sleeve, per month) for the leading-
     # signal family. ``tsmom`` (the default) is handled inline below to keep the
     # round-1/2 presets byte-identical; ma/vol/dma use this precomputed array.
-    sig_full = (_gate_signal(H, lookback, gate_signal)
+    sig_full = (_gate_signal(H, lookback, gate_signal,
+                             vol_window=g_vol_window, vol_median=g_vol_median,
+                             fast_exit=g_fast_exit, slow_entry=g_slow_entry,
+                             dd_window=g_dd_window, dd_exit=g_dd_exit,
+                             dd_entry=g_dd_entry,
+                             vol_hi_mult=g_vol_hi, vol_lo_mult=g_vol_lo)
                 if (trend_gate and gate_signal != "tsmom") else None)
 
     refit_set = set(_refit_dates(idx, "A"))
@@ -2387,6 +2455,63 @@ def write_report(args, train_res, test_eval, oos_port, oos_m, sel_log, win,
                  "A slow grind-down (2018, 2022) can hit the 10% stop late vs a fast crash; a "
                  "V-rebound (2020) re-enters late (needs a new 6m high).",
                  "New signal → check DSR / bootstrap CI; one TRAIN/TEST split = one regime."]),
+            "EW-AsymMA-Short-6": (
+                ["Round-4b SWEEP point: EW-AsymMA-Short with a FASTER re-entry "
+                 "(slow_entry=6 vs the round-4 default 12). The round-4 default drove "
+                 "Upβ NEGATIVE because the 12m re-entry stayed short through rally "
+                 "starts; re-entering at a 6m SMA re-loads equity sooner → tests "
+                 "whether a less-overshooting band can keep Upβ POSITIVE while Dnβ "
+                 "stays NEGATIVE (the unmet property).",
+                 "Fast 3m-MA exit preserved (downside protection unchanged); real "
+                 "equity weight (EW base); sleeve-level netting can keep gross <= 1."],
+                ["Faster re-entry reduces the hysteresis band → more whipsaw in choppy "
+                 "tape (re-enters on smaller bounces); may give back some of the "
+                 "downside protection the 12m band bought.",
+                 "Sweep parameter (slow_entry=6) is tuned → overfitting surface; one "
+                 "TRAIN/TEST split = one regime. Check DSR / bootstrap CI."]),
+            "EW-AsymMA-Short-9": (
+                ["Round-4b SWEEP point: the intermediate re-entry (slow_entry=9, "
+                 "between the round-4 default 12 and the fast 6). Brackets the "
+                 "Upβ-vs-Dnβ trade-off: slower than 6 = more downside protection, "
+                 "faster than 12 = less upside overshoot.",
+                 "Real equity weight (EW base); sleeve-level netting can keep gross "
+                 "<= 1."],
+                ["Same construction costs as the rest of the asym_ma family "
+                 "(stateful, two MA horizons, tuned band).",
+                 "Sweep parameter → overfitting surface; one split = one regime. "
+                 "Check DSR / bootstrap CI."]),
+            "EW-AsymMA-Tight": (
+                ["Round-4b SWEEP point: a TIGHTER hysteresis band — fast_exit=2 "
+                 "(exit on a 2m-MA break, even faster downside flee) + slow_entry=6 "
+                 "(re-enter on a 6m SMA). The tightest band in the family: quickest "
+                 "to flee, quickest to return — tests the 'high turnover, low lag' "
+                 "corner of the grid.",
+                 "Real equity weight (EW base); sleeve-level netting can keep gross "
+                 "<= 1."],
+                ["The 2m exit is noisy → more false flips in chop; the tight band → "
+                 "highest turnover of the family (more cost, more whipsaw).",
+                 "Two tuned parameters → most overfitting surface of the sweep; one "
+                 "split = one regime. Check DSR / bootstrap CI."]),
+            "EW-AsymVol-Short": (
+                ["Round-4b: a HYSTERETIC vol-regime gate — LONG -> SHORT once the "
+                 "prior month's 6m realized vol exceeds its trailing 60m median "
+                 "(fast exit on stress), SHORT -> LONG once vol falls back below "
+                 "0.85x the median (slow re-entry, wait for genuine calm). The "
+                 "hysteresis band = 0.85..1.0x median; a vol spike flees, vol must "
+                 "genuinely calm to return.",
+                 "Fixes the round-3 EW-Vol-Short, which SHORTED THE 2020 COVID "
+                 "V-REBOUND (vol stayed elevated through the rally → the symmetric "
+                 "vol-gate never re-entered long, -> -1.52% / -31.69% MaxDD). The "
+                 "slow lower-bar re-entry waits for vol to actually calm. Different "
+                 "information set from price-MA → diversifies the signal family.",
+                 "Real equity weight (EW base); sleeve-level netting can keep gross "
+                 "<= 1."],
+                ["Vol can stay elevated THROUGH a V-rebound even with hysteresis "
+                 "(vol calms late) — the 0.85x bar may still re-enter after the "
+                 "rally's best months.",
+                 "60m median needs a long warm-up; the 0.85x / 1.0x thresholds are "
+                 "tuned → overfitting surface. New signal → check DSR / bootstrap "
+                 "CI; one split = one regime."]),
         }
         for fname in SCHEME_ORDER:
             if fname not in flavor_data:
