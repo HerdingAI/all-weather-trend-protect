@@ -6,14 +6,16 @@ This catalogs every portfolio "flavor" evaluated in `risk_parity_eval.py`: the s
 existing schemes (EW, InvVol, InvVar, ERC, MinVar, LS-TSMOM) plus the **TrendProtect**
 flavors added to answer the brief — *find an All-Weather variant with higher expected
 return while keeping equity correlation asymmetric (correlated on the way up, low/negative
-on the way down)*. The TrendProtect family grew in three rounds: **round 1** added four
+on the way down)*. The TrendProtect family grew in four rounds: **round 1** added four
 cash-gate / overlay / structural-short flavors; **round 2** added six `gate_mode=short`
 flavors (flip equity to net-short on the downside signal — the direct lever for negative
 downside-β) and an `asymmetric2` score that rewards upside capture + return instead of
 fleeing equity; **round 3** added three **leading-signal** flavors (MA crossover,
-vol-regime, dual-MA) to fix round 2's lagging-momentum blocker. For each flavor: the
-construction formula, what it holds (gross / net, when it shorts), its parameters, the
-measured out-of-sample metrics, and pros / cons.
+vol-regime, dual-MA) to fix round 2's lagging-momentum blocker; **round 4** added two
+**directionally-asymmetric (hysteretic)** gates (fast downside exit, slow upside re-entry)
+— the round-3 prescription made concrete, and the first flavor in the family to drive Dnβ
+negative. For each flavor: the construction formula, what it holds (gross / net, when it
+shorts), its parameters, the measured out-of-sample metrics, and pros / cons.
 
 The measured numbers live in the canonical reports and are reproduced in the
 **comparison menus** at the end:
@@ -28,6 +30,8 @@ The measured numbers live in the canonical reports and are reproduced in the
   (regenerable with `.venv/bin/python risk_parity_eval.py --score-mode asymmetric2 ...`).
 - **Asymmetric2-score canonical** (round 3, +the three leading-signal flavors):
   [`output/risk_parity_eval_asym3/report_eval.md`](../output/risk_parity_eval_asym3/report_eval.md).
+- **Asymmetric2-score canonical** (round 4, +the two hysteretic/asymmetric-gate flavors):
+  [`output/risk_parity_eval_asym4/report_eval.md`](../output/risk_parity_eval_asym4/report_eval.md).
 
 See also the peer review: [`docs/peer-review.md`](peer-review.md).
 
@@ -179,15 +183,21 @@ machinery. The engine knobs (each preset is a dict of these):
   keeps a real equity weight so the gate/short has something to act on (round 2);
 - `lookback` (months, default 12) — per-preset override of the trend signal window
   (6m = faster, less lag, more whipsaw);
-- `gate_signal` ("tsmom" | "ma" | "vol" | "dma", default "tsmom") — **round 3**. Which
-  signal drives the equity gate. **tsmom** = trailing-`lookback` return (the round-1/2
-  signal, *lagging* — long into drawdown starts, short/flat into rally starts). **ma** =
-  price vs `lookback`-month SMA crossover (a *leading* signal — the MA crosses before the
-  lookback-return flips sign). **dma** = fast 3m SMA vs slow `lookback`-month SMA (a
-  smoother/faster crossover). **vol** = 6m realized vol vs its trailing 60m median (a
-  *regime* filter — vol spikes lead drawdowns; different information set from price). The
-  leading signals need a longer pre-window (vol uses a 60m median of a 6m realized vol →
-  ~66m), so the engine pulls `max(lookback, 72)` months of pre-window history.
+- `gate_signal` ("tsmom" | "ma" | "vol" | "dma" | "asym_ma" | "dd_stop", default "tsmom")
+  — **round 3** (first four) / **round 4** (last two). Which signal drives the equity gate.
+  **tsmom** = trailing-`lookback` return (the round-1/2 signal, *lagging* — long into
+  drawdown starts, short/flat into rally starts). **ma** = price vs `lookback`-month SMA
+  crossover (a *leading* signal — the MA crosses before the lookback-return flips sign).
+  **dma** = fast 3m SMA vs slow `lookback`-month SMA (a smoother/faster crossover). **vol**
+  = 6m realized vol vs its trailing 60m median (a *regime* filter — vol spikes lead
+  drawdowns; different information set from price). **asym_ma** = *hysteretic* MA gate
+  (round 4): LONG → SHORT when price < 3m SMA (fast exit), SHORT → LONG when price > 12m
+  SMA (slow re-entry) — directionally **asymmetric**, the round-3 prescription. **dd_stop**
+  = *hysteretic* trailing-stop (round 4): LONG → SHORT once drawdown from the 6m peak
+  exceeds 10%, SHORT → LONG once within 3% of the peak. The new signals need a pre-window
+  long enough for `slow_entry=12` / `dd_window=6`, so the engine pulls `max(lookback, 72)`
+  months of pre-window history; the leading `vol` signal needs ~66m (a 60m median of a 6m
+  realized vol), also covered.
 
 Per month, each flavor's position is rebuilt from:
 
@@ -466,6 +476,80 @@ rally, breaking the lag.
 
 ---
 
+## 3d. The two asymmetric (hysteretic) gate flavors (round 4)
+
+Rounds 1-3 all used **symmetric** gate signals — a price/vol rule that is equally
+trigger-happy in both directions, so any signal that exits before a drawdown also exits
+before *some* rallies, and **Dnβ ≥ Upβ in every single one of the 16 prior flavors**.
+Round 4 makes the round-3 prescription concrete: a **directionally-asymmetric (hysteretic)**
+gate — *fast* to flee equity on the downside (exit on a small break), *slow* to return on
+the upside (re-enter only on a clear recovery). The state is a per-sleeve flip-flop with
+hysteresis; it starts LONG and holds through chop above the fast trigger, so it stays
+correlated on the way up and only goes net-short after a clear break. Two new
+`gate_signal` values (`"asym_ma"`, `"dd_stop"`) implement this in `_gate_signal`; the
+existing `tsmom`/`ma`/`vol`/`dma` paths are untouched. The engine pulls `max(lookback,
+72)` months of pre-window history (enough for `slow_entry=12` and `dd_window=6`).
+
+### EW-AsymMA-Short
+- **Preset:** `trend_gate=True, gate_mode="short", base_mode="ew", gate_signal="asym_ma",
+  w_overlay=0.0, struct_short=None, lookback=10`.
+- **Construction:** EW-Short driven by a **hysteretic MA gate**. State starts LONG. LONG →
+  SHORT when `price < 3m SMA` (fast exit on a break); SHORT → LONG when `price > 12m SMA`
+  (slow re-entry only on a clear recovery). The fast/slow-MA gap is the hysteresis band:
+  once short, the sleeve needs a *new 12m-high-style* recovery to flip back, so it does not
+  whipsaw on every bounce. Equity net-short in the SHORT state, net-long in the LONG state;
+  bonds/gold/diversifiers stay long. Gross ≤ 1 (sleeve-level netting).
+- **Holds:** the equal-weight combo; equity long through chop above the 3m SMA, net-short
+  once price breaks below it, back to long only once price reclaims the 12m SMA.
+- **When it shorts:** equity sleeves after a fast-MA break, until a slow-MA recovery.
+- **Parameters:** `gate_signal="asym_ma"`, `fast_exit=3`, `slow_entry=12`, `base_mode="ew"`.
+- **Pros:** the round-3 prescription made concrete — asymmetric by construction (fast exit,
+  slow re-entry). Real equity weight (EW base). The first flavor in the whole 18-flavor
+  family to drive Dnβ **negative** (−0.049) and Dn-corr **negative** (−0.060) — real,
+  measured downside protection (the sleeve genuinely moves *against* equities on down
+  months).
+- **Cons:** the slow 12m re-entry overshoots — it stays short through the start of rallies
+  too, so **Upβ also goes negative** (−0.124). Net shape: "negatively correlated *always*"
+  (a short-leaning book), not "correlated up, protected down" — Upβ (−0.124) < Dnβ (−0.049),
+  so the asymmetric property is **still not met**. Return 3.43% < AW 7.37%; MaxDD −17.22%;
+  DSR −0.90. Stateful + two MA horizons → more overfitting surface; one split = one regime.
+- **Regime wins/loses:** wins on downside protection (negative Dnβ/Dn-corr — unique in the
+  family); loses on upside capture (negative Upβ) and return. The hysteresis moved the
+  betas from "protected down, not up" (round 3) into "negative both ways" — closer in
+  *direction* to the goal but it overshot the upside half.
+
+### EW-DDStop-Short
+- **Preset:** `trend_gate=True, gate_mode="short", base_mode="ew", gate_signal="dd_stop",
+  w_overlay=0.0, struct_short=None, lookback=10`.
+- **Construction:** EW-Short driven by a **hysteretic trailing-stop gate** — the most direct
+  map to the brief. State starts LONG. LONG → SHORT once the sleeve's drawdown from its
+  trailing 6m peak exceeds 10% (fast exit — a clear break); SHORT → LONG once it recovers
+  inside 3% of the peak (slow re-entry, near a new high). "Flee the break, wait for a new
+  high." Inherently asymmetric: the trigger is "you've fallen >10%", the re-entry is "you've
+  made a new high" — quick to flee, slow to return. Equity net-short in the SHORT state;
+  bonds/gold/diversifiers stay long. Gross ≤ 1 (sleeve-level netting).
+- **Holds:** the equal-weight combo; equity long near a 6m high, net-short once it has
+  fallen >10% off that high, back to long only once it makes a new ~6m high.
+- **When it shorts:** equity sleeves after a >10% drawdown from the trailing 6m peak.
+- **Parameters:** `gate_signal="dd_stop"`, `dd_window=6`, `dd_exit=0.10`, `dd_entry=0.03`,
+  `base_mode="ew"`.
+- **Pros:** the most literal asymmetric shape — the exit trigger and the re-entry trigger
+  are different *quantities* (a 10% loss vs a new high), so hysteresis is structural, not
+  just a wider band. Real equity weight (EW base); the direct "flee the break" downside
+  insurance the brief asked for.
+- **Cons:** **failed on the asymmetric property** — Dnβ 0.536 >> Upβ 0.106 (the gap is the
+  *wrong way* and large). A slow grind-down (2018, 2022) hits the 10% stop *late* (price has
+  already fallen), and re-entering on a "new 6m high" *lags* a V-rebound (2020) — both
+  triggers are themselves lagging, so the hysteresis does not help. Return 2.71%, MaxDD
+  −24.01%, both-down −23.75%, DSR −1.01 — the worst of the four leading/asymmetric flavors.
+  Drawdown thresholds (10%/3%) and the 6m window are tuned → overfitting surface; one
+  split = one regime.
+- **Regime wins/loses:** loses on nearly every axis — the lagging triggers defeat the
+  asymmetry. Confirms that a *leading* fast-exit (as in EW-AsymMA-Short) is needed; a
+  drawdown-percentage stop is itself a lagging signal.
+
+---
+
 ## 4. Reproducing the comparison
 
 ```bash
@@ -489,6 +573,12 @@ rally, breaking the lag.
   --schemes EW,InvVol,InvVar,ERC,MinVar,LS-TSMOM,TrendGate,TG-Short,TG-Short-LS,TG-Short-6m,EW-Short,EW-Short-LS,EW-Short-6m,EW-MA-Short,EW-Vol-Short,EW-DMA-Short \
   --rolling-schemes EW,MinVar,LS-TSMOM --bootstrap 2000 --out-dir output/risk_parity_eval_asym3
 # → output/risk_parity_eval_asym3/report_eval.md (§10 = the round-3 menu)
+
+# Asymmetric2-score canonical (round 4, +two hysteretic/asymmetric-gate flavors):
+.venv/bin/python risk_parity_eval.py --score-mode asymmetric2 \
+  --schemes EW,InvVol,InvVar,ERC,MinVar,LS-TSMOM,TrendGate,TG-Short,TG-Short-LS,TG-Short-6m,EW-Short,EW-Short-LS,EW-Short-6m,EW-MA-Short,EW-Vol-Short,EW-DMA-Short,EW-AsymMA-Short,EW-DDStop-Short \
+  --rolling-schemes EW,MinVar,LS-TSMOM --bootstrap 2000 --out-dir output/risk_parity_eval_asym4
+# → output/risk_parity_eval_asym4/report_eval.md (§10 = the round-4 menu)
 
 # Regression guard (default score, COV-only — existing numbers unchanged):
 .venv/bin/python risk_parity_eval.py --ref-mode sleeves --schemes EW,InvVol,InvVar,ERC,MinVar --no-rolling
@@ -691,5 +781,88 @@ multiple-comparison adjustment); Sharpe CI = block-bootstrap 95% interval.
   5.09% net, gross 1.00, but Dnβ 0.340 > Upβ 0.086. Unchanged.
 - **Avoid:** **EW-Vol-Short** (−1.52%, −31.69% MaxDD — vol-regime shorts the 2020 rebound)
   and **EW-DMA-Short** (2.02%, no edge over EW-MA-Short).
+
+## 5c. Comparison menu — round 4 (measured, out-of-sample)
+
+Round 4 tests the round-3 prescription directly: two **directionally-asymmetric (hysteretic)**
+gates — fast downside exit, slow upside re-entry — vs the full prior 16-flavor family,
+All-Weather, and the MinVar winner. Net of the 5.8%/yr leverage cost on gross > 1. Source:
+`output/risk_parity_eval_asym4/report_eval.md` §10 (18 schemes, 50706 TRAIN trials).
+
+| Portfolio | Ann ret | Sharpe | MaxDD | Both-down | Upβ | Dnβ | Dn-corr | Gross | Lev cost/yr | DSR | Sharpe CI |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| All-Weather | 7.37% | **1.055** | −12.31% | −18.74% | 0.327 | 0.475 | 0.793 | 1.00 | 0.00% | — | — |
+| RP winner | 9.29% | **0.921** | −15.65% | −30.50% | 0.432 | 0.585 | 0.747 | 1.00 | 0.00% | — | — |
+| EW-MA-Short *(r3)* | 4.08% | **0.687** | −12.46% | −11.24% | 0.014 | 0.125 | 0.259 | 1.00 | 0.00% | −0.62 | [−0.02, 1.52] |
+| TG-Short *(r2)* | 3.27% | **0.622** | −10.29% | −13.17% | 0.134 | 0.201 | 0.366 | 1.00 | 0.00% | −0.69 | [0.01, 1.46] |
+| TG-Short-6m *(r2)* | 4.62% | **0.588** | −16.31% | −20.18% | 0.110 | 0.421 | 0.513 | 1.00 | 0.00% | −0.72 | [−0.07, 1.61] |
+| TG-Short-LS *(r2)* | 4.13% | **0.448** | −20.50% | −23.99% | 0.056 | 0.294 | 0.347 | 1.20 | 1.16% | −0.86 | [−0.25, 1.29] |
+| EW-Short-6m *(r2)* | 3.30% | **0.414** | −20.58% | −20.18% | 0.091 | 0.460 | 0.542 | 1.00 | 0.00% | −0.90 | [−0.24, 1.43] |
+| **EW-AsymMA-Short** *(new)* | 3.43% | **0.406** | −17.22% | −17.76% | **−0.124** | **−0.049** | **−0.060** | 1.00 | 0.00% | −0.90 | [−0.28, 1.15] |
+| EW-Short *(r2)* | 2.67% | **0.348** | −20.06% | −16.68% | 0.018 | 0.561 | 0.607 | 1.00 | 0.00% | −0.96 | [−0.25, 1.50] |
+| **EW-DDStop-Short** *(new)* | 2.71% | **0.299** | −24.01% | −23.75% | 0.106 | 0.536 | 0.587 | 1.00 | 0.00% | −1.01 | [−0.35, 1.27] |
+| EW-DMA-Short *(r3)* | 2.02% | **0.273** | −20.92% | −15.83% | 0.035 | 0.396 | 0.495 | 1.00 | 0.00% | −1.04 | [−0.38, 1.26] |
+| EW-Vol-Short *(r3)* | −1.52% | **−0.182** | −31.69% | −13.96% | −0.006 | 0.275 | 0.277 | 1.00 | 0.00% | −1.49 | [−0.75, 0.49] |
+
+> **Verdict (measured, honest — round 4).** The asymmetric-gate hypothesis is **partially
+> confirmed, and it produces a first — but the property is still not met.**
+> 1. **EW-AsymMA-Short is the first flavor in the entire 18-flavor family (4 rounds) to drive
+>    Dnβ negative (−0.049) and Dn-corr negative (−0.060).** The hysteretic gate (fast 3m-MA
+>    exit, slow 12m-MA re-entry) genuinely flips the equity sleeve net-short *against*
+>    equities on down months — real, measured downside protection that no symmetric gate
+>    achieved. This is a step-change: round-3's best (EW-MA-Short) had Dnβ +0.125; round 4
+>    takes it negative.
+> 2. **BUT the slow re-entry overshoots — Upβ also went negative (−0.124).** Staying short
+>    until price reclaims the 12m SMA means the sleeve is still short through the *start* of
+>    rallies (the V-rebound), so it misses the upside it was supposed to capture. Net shape:
+>    "**negatively correlated *always***" (a short-leaning book), not "correlated up,
+>    protected down." Upβ (−0.124) < Dnβ (−0.049), so **Upβ > Dnβ is still not achieved** —
+>    the asymmetric property the brief wants remains unsatisfied, now in its 4th direct test.
+>    Return 3.43% < AW 7.37%; DSR −0.90 (insignificant).
+> 3. **EW-DDStop-Short failed outright.** Dnβ 0.536 >> Upβ 0.106 — the gap is the *wrong way*
+>    and large. A drawdown-percentage stop (exit at −10% off a 6m peak) is itself a *lagging*
+>    signal (price has already fallen), and re-entering on a "new 6m high" *lags* a
+>    V-rebound — so the hysteresis, built on two lagging triggers, does not produce the
+>    asymmetry. MaxDD −24.01%, both-down −23.75%, DSR −1.01 — the worst of the four
+>    leading/asymmetric flavors. Confirms a *leading* fast-exit (as in EW-AsymMA-Short) is
+>    necessary; a drawdown stop is not it.
+> 4. **No flavor beats 7.37% with the asymmetric property.** Across all four rounds (18
+>    flavors), **Dnβ ≥ Upβ in every single one.** The RP winner (9.29%) beats on return with
+>    the *most* downside correlation. Every flavor's DSR is negative.
+>
+> **The round-4 finding (what the asymmetry bought and what it cost):** hysteresis *can*
+> flip Dnβ negative — the round-3 prescription was right that an asymmetric signal is the
+> lever for downside protection. But the same slow re-entry that protects the downside
+> *also* suppresses the upside (Upβ goes negative with it), so the two halves of the brief
+> still cannot both be satisfied by a single price-gate in one TRAIN/TEST split. The
+> family has now spanned the full space: round 2 = "correlated up, NOT protected down";
+> round 3 = "protected down, NOT correlated up"; round 4 = "negatively correlated both ways."
+> The remaining lever is to **decouple the two halves entirely** — keep a *long-only* base
+> for the upside (so Upβ stays positive) and add a **defined-downside insurance overlay**
+> (put spread / explicit downside-stop on a separate notional) that does not flip the long
+> book short. That keeps the upside capture while capping the downside — the construction
+> the brief's "long-term short a ticker" permission hints at, but as an *overlay*, not a
+> gate that replaces the long. Not yet implemented. Trust the DSR / bootstrap CI: every
+> flavor's DSR is negative, the flavors share sleeves (effective N ≪ nominal N), and this
+> is one TRAIN/TEST split = one regime.
+
+### Top picks (round 4 — the menu updated)
+
+- **Best downside protection of all 18 flavors (the "protected down" champion):**
+  **EW-AsymMA-Short** — the only flavor with **negative** Dnβ (−0.049) and Dn-corr (−0.060);
+  both-down −17.76%, gross 1.00 (no leverage cost), Sharpe 0.406. The hysteretic gate is the
+  round-3 prescription made concrete. The cost is upside: Upβ −0.124 (also negative — the
+  slow re-entry shorts the rally start), return 3.43% (< AW). DSR −0.90.
+- **Best downside protection *with* positive upside (round-3 champion still stands):**
+  **EW-MA-Short** — both-down −11.24%, Dn-corr 0.259, MaxDD −12.46%, Upβ 0.014 (still
+  positive), Sharpe 0.687. Round 4 did not displace it: EW-AsymMA-Short has lower (negative)
+  Dnβ but threw away the upside to get it. Pick by whether you want the upside floor
+  (EW-MA-Short) or the purest downside hedge (EW-AsymMA-Short).
+- **Best return (beats AW, but no asymmetry):** **RP winner (MinVar)** — 9.29% / Sharpe
+  0.921, but Dnβ 0.585 > Upβ 0.432, Dn-corr 0.747. Unchanged across all four rounds
+  (long-only risk parity).
+- **Avoid:** **EW-DDStop-Short** (Dnβ 0.536 >> Upβ 0.106, MaxDD −24.01% — lagging triggers
+  defeat the asymmetry), **EW-Vol-Short** (−1.52%, −31.69% MaxDD — shorts the 2020
+  rebound), and **EW-DMA-Short** (2.02%, no edge).
 
 *Research / illustration only. Not investment advice.*

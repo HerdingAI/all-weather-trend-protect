@@ -381,7 +381,8 @@ SCHEME_ORDER = ["EW", "InvVol", "InvVar", "ERC", "MinVar", "LS-TSMOM",
                 "TrendGate", "RP-LS-Overlay", "StructShort", "TG-LS-Overlay",
                 "TG-Short", "TG-Short-LS", "TG-Short-6m",
                 "EW-Short", "EW-Short-LS", "EW-Short-6m",
-                "EW-MA-Short", "EW-Vol-Short", "EW-DMA-Short"]
+                "EW-MA-Short", "EW-Vol-Short", "EW-DMA-Short",
+                "EW-AsymMA-Short", "EW-DDStop-Short"]
 # Schemes that solve a covariance-based target weight annually (vs LS-TSMOM,
 # which is a monthly momentum signal with no covariance target).
 COV_SCHEMES = {"EW", "InvVol", "InvVar", "ERC", "MinVar"}
@@ -447,6 +448,13 @@ FLAVOR_PRESETS: Dict[str, dict] = {
                       "gate_signal": "vol", "w_overlay": 0.0, "struct_short": None},
     "EW-DMA-Short":  {"trend_gate": True,  "gate_mode": "short", "base_mode": "ew",
                       "gate_signal": "dma", "w_overlay": 0.0, "struct_short": None},
+    # Round 4: ASYMMETRIC (hysteretic) gates -- fast downside exit, slow upside
+    # re-entry. Direct test of the round-3 prescription (a symmetric signal can't
+    # be "correlated up, protected down"; an asymmetric one might).
+    "EW-AsymMA-Short": {"trend_gate": True, "gate_mode": "short", "base_mode": "ew",
+                        "gate_signal": "asym_ma", "w_overlay": 0.0, "struct_short": None},
+    "EW-DDStop-Short": {"trend_gate": True, "gate_mode": "short", "base_mode": "ew",
+                        "gate_signal": "dd_stop", "w_overlay": 0.0, "struct_short": None},
 }
 
 
@@ -584,7 +592,10 @@ def _backtest_ls_tsmom(panel: pd.DataFrame, ret_full: pd.DataFrame,
 
 def _gate_signal(H: np.ndarray, lookback: int, gate_signal: str,
                  vol_window: int = 6, vol_median: int = 60,
-                 fast: int = 3, slow: int = 10) -> np.ndarray:
+                 fast: int = 3, slow: int = 10,
+                 fast_exit: int = 3, slow_entry: int = 12,
+                 dd_window: int = 6, dd_exit: float = 0.10,
+                 dd_entry: float = 0.03) -> np.ndarray:
     """Per-month equity-gate direction from a (possibly leading) signal.
 
     ``H`` is the (T_hist, n) monthly-returns history (pre-window + window) for the
@@ -603,6 +614,20 @@ def _gate_signal(H: np.ndarray, lookback: int, gate_signal: str,
                 spikes tend to LEAD drawdowns.
       * "dma":  long when the `fast`-m SMA > `slow`-m SMA (prior month), short when
                 below -- a faster crossover than the single-MA gate.
+
+    Round-4 ASYMMETRIC (hysteretic) gates -- the direct fix for round 3's finding
+    that a SYMMETRIC signal (equally trigger-happy up and down) cannot be
+    "correlated up, protected down". These are STATEFUL per sleeve: quick to FLEE
+    equity on the downside, slow to RE-ENTER on the upside, so the book stays long
+    through chop (capturing upside) and only goes net-short after a clear break:
+      * "asym_ma": LONG until price < `fast_exit`-m SMA (fast exit), then SHORT
+                until price > `slow_entry`-m SMA (slow re-entry). Starts LONG.
+                Hysteresis band = the gap between the fast and slow MA.
+      * "dd_stop": LONG until the sleeve drawdown from its trailing `dd_window`-m
+                peak exceeds `dd_exit` (fast exit), then SHORT until the drawdown
+                recovers inside `dd_entry` (slow re-entry, near a new high).
+                Starts LONG. A trailing-stop / "flee the break, wait for a new
+                high" gate -- the most direct map to the brief.
     All signals are strictly causal (use only data through the prior month)."""
     T, n = H.shape
     sig = np.zeros((T, n))
@@ -640,6 +665,35 @@ def _gate_signal(H: np.ndarray, lookback: int, gate_signal: str,
                 prev = rv[t - 1]
                 sig[t] = np.where(prev < med, 1.0,
                                   np.where(prev > med, -1.0, 0.0))
+        return sig
+    if gate_signal == "asym_ma":
+        # Stateful hysteresis: LONG -> SHORT on a fast-MA break, SHORT -> LONG on
+        # a slow-MA recovery. Starts LONG (relaxed upside: stay long through chop
+        # above the fast MA). Per-sleeve state persists across months.
+        state = np.ones(n)                       # start LONG
+        for t in range(T):
+            if t >= slow_entry:
+                fast_ma = lvl[t - fast_exit:t].mean(axis=0)
+                slow_ma = lvl[t - slow_entry:t].mean(axis=0)
+                prev = lvl[t - 1]
+                to_short = (prev < fast_ma) & (state > 0.0)     # fast exit
+                to_long = (prev > slow_ma) & (state < 0.0)      # slow re-entry
+                state = np.where(to_short, -1.0, np.where(to_long, 1.0, state))
+            sig[t] = state
+        return sig
+    if gate_signal == "dd_stop":
+        # Stateful trailing-stop: LONG -> SHORT once the sleeve is > dd_exit below
+        # its trailing dd_window-m peak (a clear break), SHORT -> LONG once it
+        # recovers inside dd_entry of the peak (near a new high). Starts LONG.
+        state = np.ones(n)                       # start LONG
+        for t in range(T):
+            if t >= dd_window:
+                pk = np.max(lvl[t - dd_window:t], axis=0)      # peak over trailing window
+                dd = (lvl[t - 1] - pk) / pk                    # drawdown (<=0)
+                to_short = (dd < -dd_exit) & (state > 0.0)     # fast exit on a break
+                to_long = (dd > -dd_entry) & (state < 0.0)     # slow re-entry near a high
+                state = np.where(to_short, -1.0, np.where(to_long, 1.0, state))
+            sig[t] = state
         return sig
     # Fallback: tsmom (so an unknown gate_signal is safe, not a crash).
     for t in range(T):
@@ -2302,6 +2356,37 @@ def write_report(args, train_res, test_eval, oos_port, oos_m, sel_log, win,
                  "single-MA gate.",
                  "Two MAs → slightly more overfitting surface than EW-MA-Short.",
                  "New signal → new overfitting surface; check DSR / bootstrap CI."]),
+            "EW-AsymMA-Short": (
+                ["ASYMMETRIC (hysteretic) MA gate — the round-3 prescription made concrete: "
+                 "LONG until price < 3m SMA (FAST downside exit), then SHORT until price > 12m "
+                 "SMA (SLOW upside re-entry). Starts LONG and holds through chop above the fast "
+                 "MA, so it stays correlated on the way up and only flees (goes net-short) after "
+                 "a clear break. Hysteresis band = the fast/slow-MA gap.",
+                 "The one untested lever: a SYMMETRIC signal (rounds 1-3) is equally trigger-"
+                 "happy up and down → Dnβ >= Upβ everywhere; an asymmetric one can in principle "
+                 "be 'correlated up, protected down'.",
+                 "Real equity weight (EW base) + short-on-downside; sleeve-level netting can "
+                 "keep gross <= 1."],
+                ["The slow 12m re-entry can lag the START of a rally (re-enters late after a V "
+                 "rebound) — some upside missed at the turn.",
+                 "Stateful + two MA horizons → more overfitting surface than the symmetric "
+                 "gates; the fast/slow gap is a tuned parameter.",
+                 "New signal → check DSR / bootstrap CI; one TRAIN/TEST split = one regime."]),
+            "EW-DDStop-Short": (
+                ["ASYMMETRIC trailing-stop gate — the most direct map to the brief: LONG until "
+                 "the equity sleeve drawdown from its trailing 6m peak exceeds 10% (FAST exit — "
+                 "a clear break), then SHORT until it recovers inside 3% of the peak (SLOW "
+                 "re-entry, near a new high). 'Flee the break, wait for a new high.'",
+                 "Inherently asymmetric: the trigger is 'you've fallen >10%', the re-entry is "
+                 "'you've made a new high' — quick to flee, slow to return, exactly the brief's "
+                 "shape.",
+                 "Real equity weight (EW base) + short-on-downside; sleeve-level netting can "
+                 "keep gross <= 1."],
+                ["Drawdown thresholds (10% exit / 3% re-entry) are tuned → overfitting surface; "
+                 "the 6m peak window is a parameter.",
+                 "A slow grind-down (2018, 2022) can hit the 10% stop late vs a fast crash; a "
+                 "V-rebound (2020) re-enters late (needs a new 6m high).",
+                 "New signal → check DSR / bootstrap CI; one TRAIN/TEST split = one regime."]),
         }
         for fname in SCHEME_ORDER:
             if fname not in flavor_data:

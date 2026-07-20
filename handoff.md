@@ -198,6 +198,77 @@ the upside. Not yet implemented.
 Docs: `docs/portfolio-flavors.md` updated — §3c (three new flavors + `gate_signal` knob) +
 §5b (round-3 measured menu + verdict + top picks) + round-3 reproduction command.
 
+## TrendProtect round 4 — asymmetric (hysteretic) gate family (2026-07-20)
+Round 3 isolated the fundamental tension: a **symmetric** gate is equally trigger-happy up
+and down, so it can optimize *either* the downside half (EW-MA-Short) or the upside half
+(TrendGate), never both — Dnβ ≥ Upβ in all 16 prior flavors. Round 4 implements the
+round-3 prescription: a **directionally-asymmetric (hysteretic)** gate — fast downside
+exit, slow upside re-entry — the direct test of "correlated up, protected down." Two new
+`gate_signal` values in `_gate_signal()` (`risk_parity_eval.py`), each a stateful per-sleeve
+flip-flop starting LONG:
+
+- **`asym_ma`** (EW-AsymMA-Short) — LONG → SHORT when `price < 3m SMA` (fast exit), SHORT →
+  LONG when `price > 12m SMA` (slow re-entry). Hysteresis band = the fast/slow-MA gap.
+- **`dd_stop`** (EW-DDStop-Short) — LONG → SHORT once drawdown from the 6m peak > 10%,
+  SHORT → LONG once within 3% of the peak ("flee the break, wait for a new high").
+
+Both are EW-base + `gate_mode=short` (real equity weight, flips net-short on the downside
+state), gross ≤ 1 (sleeve-level netting, no leverage cost). New helper params
+(`fast_exit=3, slow_entry=12, dd_window=6, dd_exit=0.10, dd_entry=0.03`) use helper
+defaults (the precompute call passes only `(H, lookback, gate_signal)`); pre_n=72 covers
+slow_entry=12 and dd_window=6. The `tsmom`/`ma`/`vol`/`dma` paths and the inline gate block
+are **byte-identical** — the new branches are behind `if gate_signal == "asym_ma"/"dd_stop"`,
+reached only by the two new presets, so the round-3 regression-guard opt-in guarantee
+holds. Sanity-tested: both go LONG in an up-trend, SHORT after a crash; `asym_ma` re-enters
+slower (t=42) than `dd_stop` (t=39) — confirms the slow-reentry asymmetry; both causal
+(only `lvl[t-1]` and trailing windows).
+
+**Regression guard (default score, external ref, 6 base schemes, with round-4 code):**
+`output/rp_reg4c/report_eval.md` — §4 byte-identical to the anchor
+`output/rp_reg4/report_eval.md` (verifies opt-in).
+
+**Canonical run:** `output/risk_parity_eval_asym4/report_eval.md` (regenerable:
+`.venv/bin/python risk_parity_eval.py --score-mode asymmetric2 --schemes
+EW,InvVol,InvVar,ERC,MinVar,LS-TSMOM,TrendGate,TG-Short,TG-Short-LS,TG-Short-6m,EW-Short,
+EW-Short-LS,EW-Short-6m,EW-MA-Short,EW-Vol-Short,EW-DMA-Short,EW-AsymMA-Short,EW-DDStop-Short
+--rolling-schemes EW,MinVar,LS-TSMOM --bootstrap 2000 --out-dir output/risk_parity_eval_asym4`).
+50706 TRAIN trials, 18 schemes.
+
+**Measured verdict (round 4, honest) — the asymmetry bought a first, but the property is
+still not met:**
+1. **EW-AsymMA-Short is the FIRST flavor in the entire 18-flavor family (4 rounds) to drive
+   Dnβ negative (−0.049) and Dn-corr negative (−0.060).** The hysteretic gate genuinely
+   flips the equity sleeve net-short *against* equities on down months — real downside
+   protection no symmetric gate achieved (round-3 best EW-MA-Short was Dnβ +0.125). The
+   round-3 prescription (an asymmetric signal is the lever) is **confirmed**.
+2. **BUT the slow re-entry overshoots — Upβ also went negative (−0.124).** Staying short
+   until price reclaims the 12m SMA means the sleeve is still short through the *start* of
+   rallies (the V-rebound), so it misses the upside it was supposed to capture. Net shape:
+   "negatively correlated *always*" (a short-leaning book), not "correlated up, protected
+   down." Upβ (−0.124) < Dnβ (−0.049) — **Upβ > Dnβ is still not achieved.** Return 3.43% <
+   AW 7.37%; DSR −0.90.
+3. **EW-DDStop-Short failed outright** — Dnβ 0.536 >> Upβ 0.106. A drawdown-percentage stop
+   is itself *lagging* (price has already fallen), and re-entering on a "new 6m high"
+   *lags* a V-rebound — hysteresis built on two lagging triggers does not produce the
+   asymmetry. MaxDD −24.01%, DSR −1.01. Confirms a *leading* fast-exit is necessary.
+4. **No flavor beats 7.37% with the asymmetric property.** Across all four rounds (18
+   flavors), **Dnβ ≥ Upβ in every single one.** RP winner (9.29%) beats on return with the
+   *most* downside correlation. Every flavor's DSR is negative.
+
+**The round-4 finding:** the family has now spanned the full space — round 2 = "correlated
+up, NOT protected down"; round 3 = "protected down, NOT correlated up"; round 4 =
+"negatively correlated both ways." A single price-gate in one TRAIN/TEST split cannot
+satisfy both halves: the slow re-entry that protects the downside *also* suppresses the
+upside. The remaining lever is to **decouple the two halves entirely** — keep a long-only
+base for the upside (so Upβ stays positive) and add a **defined-downside insurance overlay**
+(put spread / explicit downside-stop on a *separate* notional) that caps the downside
+*without* flipping the long book short. That is the construction the brief's "long-term
+short a ticker" permission hints at, as an overlay not a gate. Not yet implemented.
+
+Docs: `docs/portfolio-flavors.md` updated — §3d (two new hysteretic flavors + `gate_signal`
+knob extended) + §5c (round-4 measured menu + verdict + top picks) + round-4 reproduction
+command + intro ("four rounds").
+
 ## Next steps (open) — risk parity
 - A proper OOS multiple-comparison test (Holm/Bonferroni over effective-N, or DSR on the
   TRAIN max) — currently only disclosed, not implemented.
