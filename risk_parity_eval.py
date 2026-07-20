@@ -378,7 +378,9 @@ SCHEMES: Dict[str, Callable] = {
     "ERC": s_erc, "MinVar": s_minvar, "LS-TSMOM": s_ls_tsmom,
 }
 SCHEME_ORDER = ["EW", "InvVol", "InvVar", "ERC", "MinVar", "LS-TSMOM",
-                "TrendGate", "RP-LS-Overlay", "StructShort", "TG-LS-Overlay"]
+                "TrendGate", "RP-LS-Overlay", "StructShort", "TG-LS-Overlay",
+                "TG-Short", "TG-Short-LS", "TG-Short-6m",
+                "EW-Short", "EW-Short-LS", "EW-Short-6m"]
 # Schemes that solve a covariance-based target weight annually (vs LS-TSMOM,
 # which is a monthly momentum signal with no covariance target).
 COV_SCHEMES = {"EW", "InvVol", "InvVar", "ERC", "MinVar"}
@@ -387,18 +389,40 @@ COV_SCHEMES = {"EW", "InvVol", "InvVar", "ERC", "MinVar"}
 # cap-respecting) with active overlays targeting the All-Weather weak spot
 # (both-down / stagflation) while keeping equity upside. See docs/portfolio-
 # flavors.md for the full construction + measured comparison.
-#   trend_gate   : gate equity sleeves to cash when their trailing-12m < 0.
+#   trend_gate   : gate equity sleeves when their trailing-12m return < 0.
+#   gate_mode    : "cash" (gate equity to 0, long-only, gross<=1) OR "short"
+#                  (FLIP the equity sleeve to net-short when mom<0 -- long
+#                  equity when up, SHORT equity when down; bonds/gold/diversifiers
+#                  stay long. This is the direct lever for negative downside-beta
+#                  while keeping upside-beta, the brief's "correlated up, protected
+#                  down". Adds gross when equity is short -> leverage cost on >1.)
 #   w_overlay    : LS-TSMOM dollar-neutral momentum sleeve gross (adds gross).
 #   struct_short : (sleeve_name, w_short) permanent sleeve-level net short.
+#   lookback     : optional per-preset override of the trend-signal window (months).
 FLAVOR_PRESETS: Dict[str, dict] = {
-    "TrendGate":     {"trend_gate": True,  "w_overlay": 0.0,
-                      "struct_short": None},
+    "TrendGate":     {"trend_gate": True,  "gate_mode": "cash",
+                      "w_overlay": 0.0, "struct_short": None},
     "RP-LS-Overlay": {"trend_gate": False, "w_overlay": 0.30,
                       "struct_short": None},
     "StructShort":   {"trend_gate": False, "w_overlay": 0.0,
                       "struct_short": ("US Treasuries", 0.30)},
-    "TG-LS-Overlay": {"trend_gate": True,  "w_overlay": 0.20,
-                      "struct_short": None},
+    "TG-LS-Overlay": {"trend_gate": True,  "gate_mode": "cash",
+                      "w_overlay": 0.20, "struct_short": None},
+    # New: short the equity sleeve on the downside signal (the brief's lever).
+    "TG-Short":      {"trend_gate": True,  "gate_mode": "short",
+                      "w_overlay": 0.0, "struct_short": None},
+    "TG-Short-LS":   {"trend_gate": True,  "gate_mode": "short",
+                      "w_overlay": 0.20, "struct_short": None},
+    "TG-Short-6m":   {"trend_gate": True,  "gate_mode": "short",
+                      "w_overlay": 0.0, "struct_short": None, "lookback": 6},
+    # EW-base variants: equal-weight base (keeps real equity weight, like AW) so the
+    # short-on-downside gate has equity to flip and the return floor is near AW.
+    "EW-Short":      {"trend_gate": True,  "gate_mode": "short", "base_mode": "ew",
+                      "w_overlay": 0.0, "struct_short": None},
+    "EW-Short-LS":   {"trend_gate": True,  "gate_mode": "short", "base_mode": "ew",
+                      "w_overlay": 0.20, "struct_short": None},
+    "EW-Short-6m":   {"trend_gate": True,  "gate_mode": "short", "base_mode": "ew",
+                      "w_overlay": 0.0, "struct_short": None, "lookback": 6},
 }
 
 
@@ -573,12 +597,15 @@ def _backtest_flavor(panel: pd.DataFrame, ret_full: pd.DataFrame,
     eq_set = set(eq) if eq else set()
     is_eq = np.array([nm in eq_set for nm in names], dtype=bool)
     trend_gate = bool(preset.get("trend_gate", False))
+    gate_mode = str(preset.get("gate_mode", "cash"))   # "cash" or "short"
     w_overlay = float(preset.get("w_overlay", 0.0))
     ss = preset.get("struct_short")
     short_name = ss[0] if ss else None
     w_short = float(ss[1]) if ss else 0.0
     short_i = (names.index(short_name)
                if (short_name is not None and short_name in names) else -1)
+    # Per-preset lookback override (default = the caller's lookback).
+    lookback = int(preset.get("lookback", lookback))
 
     # Trailing momentum per sleeve, with pre-window history so the first
     # ``lookback`` months still get a causal signal (matches _backtest_ls_tsmom).
@@ -591,26 +618,34 @@ def _backtest_flavor(panel: pd.DataFrame, ret_full: pd.DataFrame,
     Hidx = hist.index
 
     refit_set = set(_refit_dates(idx, "A"))
-    base_w = None          # annual MinVar long-leg target (constant between refits)
+    base_w = None          # annual long-leg target (constant between refits)
     pos = None             # drifted actual position (end of last month)
     last_w = None
     gross = np.zeros(T); net = np.zeros(T); turn = np.zeros(T)
+    base_mode = str(preset.get("base_mode", "minvar"))   # "minvar" or "ew"
     for tpos in range(T):
         d = idx[tpos]
         if d in refit_set and d in precomp:
-            cov_full, vol_full = precomp[d]
-            cov = cov_full[np.ix_(sleeve_idx, sleeve_idx)]
-            vol = vol_full[sleeve_idx]
-            try:
-                wv = s_minvar(cov, vol, cap=cap, erc_cap_mode=erc_cap_mode)
-                if (not np.all(np.isfinite(wv))) or wv.sum() <= 0:
-                    wv = np.ones(n) / n
-                if 0.0 < cap < 1.0 and wv.max() > cap + 1e-6:
-                    wv = cap_weights(wv, cap)
-                else:
-                    wv = wv / wv.sum()
-            except Exception:
-                wv = cap_weights(np.ones(n) / n, cap)
+            if base_mode == "ew":
+                # Equal-weight base (capped) -- like All-Weather's own ~1/n across
+                # the combo sleeves, so equity keeps a real weight (MinVar starves
+                # high-vol equity to ~5-10%). Gives the short-on-downside gate real
+                # equity to flip and a return floor near AW.
+                wv = cap_weights(np.ones(n) / n, cap) if 0.0 < cap < 1.0 else np.ones(n) / n
+            else:
+                cov_full, vol_full = precomp[d]
+                cov = cov_full[np.ix_(sleeve_idx, sleeve_idx)]
+                vol = vol_full[sleeve_idx]
+                try:
+                    wv = s_minvar(cov, vol, cap=cap, erc_cap_mode=erc_cap_mode)
+                    if (not np.all(np.isfinite(wv))) or wv.sum() <= 0:
+                        wv = np.ones(n) / n
+                    if 0.0 < cap < 1.0 and wv.max() > cap + 1e-6:
+                        wv = cap_weights(wv, cap)
+                    else:
+                        wv = wv / wv.sum()
+                except Exception:
+                    wv = cap_weights(np.ones(n) / n, cap)
             base_w = wv
         if base_w is None:
             continue
@@ -623,8 +658,17 @@ def _backtest_flavor(panel: pd.DataFrame, ret_full: pd.DataFrame,
         # Long leg, optional trend-gate on equity sleeves.
         long_leg = base_w.copy()
         if trend_gate:
-            gate = np.where(mom > 0.0, 1.0, 0.0)
-            long_leg = long_leg * np.where(is_eq, gate, 1.0)
+            if gate_mode == "short":
+                # "correlated up, protected down": long equity when mom>0,
+                # SHORT the equity sleeve when mom<0, hold long when no signal
+                # (mom==0, e.g. warm-up). Bonds/gold/diversifiers stay long. The
+                # short flip adds gross when equity is short -> leverage cost.
+                flip = np.sign(mom)
+                eq_mult = np.where(mom != 0.0, flip, 1.0)
+                long_leg = long_leg * np.where(is_eq, eq_mult, 1.0)
+            else:   # "cash": gate equity to 0 when mom<=0 (long-only, gross<=1)
+                gate = np.where(mom > 0.0, 1.0, 0.0)
+                long_leg = long_leg * np.where(is_eq, gate, 1.0)
         # Structural short (sleeve-level netting).
         if short_i >= 0:
             long_leg[short_i] -= w_short
@@ -838,6 +882,26 @@ def compute_metrics(net: np.ndarray, gross: np.ndarray, turnover: np.ndarray,
 # --------------------------------------------------------------------------- #
 
 def resilience_score(df: pd.DataFrame, score_mode: str = "default") -> pd.Series:
+    if score_mode == "asymmetric2":
+        # "asymmetric2" -- the brief read literally: BEAT All-Weather's return
+        # while keeping equity correlation asymmetric (correlated UP, protected
+        # DOWN). The plain "asymmetric" mode rewards (Upbeta - Dnbeta), which the
+        # combo search satisfies by FLEEING equity (low Upbeta AND low Dnbeta) --
+        # measured: every winner ran bond/gold-heavy with Upbeta~0.05 and ~3-4%
+        # return, below AW. asymmetric2 fixes that by rewarding Upbeta ABSOLUTELY
+        # (capture upside) and ann_return ABSOLUTELY (beat AW 7.37%), while still
+        # penalizing Dnbeta + downside correlation + drawdown. This keeps real
+        # equity exposure in the selected combos so the short-on-downside gate
+        # has something to flip. Selection is on TRAIN; OOS eval + DSR/bootstrap
+        # remain the overfitting guardrails.
+        s_ret = df["ann_return_net"].rank(pct=True)
+        s_up = df["upside_beta"].rank(pct=True)
+        s_dn = (-df["downside_beta"]).rank(pct=True)
+        s_dcorr = (-df["downside_corr_eq"]).rank(pct=True)
+        s_sharpe = df["sharpe_net"].rank(pct=True)
+        s_dd = (-df["max_drawdown"]).rank(pct=True)
+        return 100.0 * (0.30 * s_ret + 0.20 * s_up + 0.15 * s_dn
+                        + 0.10 * s_dcorr + 0.15 * s_sharpe + 0.10 * s_dd).fillna(0.0)
     if score_mode == "asymmetric":
         # Reward upside capture, penalize downside beta + downside equity
         # correlation, keep Sharpe / both-down / drawdown as floor guards. This
@@ -1251,7 +1315,7 @@ def main(argv=None) -> int:
                     help="Trailing-month lookback for the LS-TSMOM (managed-"
                          "futures) momentum signal. Default 12 (matches "
                          "all_weather_v2.backtest_ls).")
-    ap.add_argument("--score-mode", choices=["default", "asymmetric"],
+    ap.add_argument("--score-mode", choices=["default", "asymmetric", "asymmetric2"],
                     default="default",
                     help="Resilience-score objective for TRAIN selection. "
                          "'default' (default) = 0.30 Sharpe + 0.25 both-down ann "
@@ -1259,9 +1323,15 @@ def main(argv=None) -> int:
                          "equity in both-down) -- the legacy 'uncorrelated positive "
                          "returns' objective. 'asymmetric' = 0.30 Sharpe + 0.20 "
                          "(upside_beta - downside_beta) + 0.20 (-downside_corr_eq) "
-                         "+ 0.15 both-down ann + 0.15 (-maxDD) -- the 'correlated up, "
-                         "protected down' objective. Only changes selection; metrics "
-                         "are always computed.")
+                         "+ 0.15 both-down ann + 0.15 (-maxDD) -- 'correlated up, "
+                         "protected down' (but the (Upbeta-Dnbeta) term lets the "
+                         "search FLEE equity -> low return). 'asymmetric2' = 0.30 "
+                         "ann_return + 0.20 upside_beta + 0.15 (-downside_beta) + "
+                         "0.10 (-downside_corr_eq) + 0.15 Sharpe + 0.10 (-maxDD) -- "
+                         "rewards upside capture AND return (beat All-Weather) while "
+                         "penalizing downside; keeps real equity exposure so the "
+                         "short-on-downside gate has something to flip. Only changes "
+                         "selection; metrics are always computed.")
     ap.add_argument("--lev-rate", type=float, default=0.058,
                     help="Annual funding cost on gross > 1 (leverage). Default 0.058 "
                          "(5.8 percent APR). Charged monthly as max(0, gross-1)*lev_rate/12 "
@@ -1359,6 +1429,7 @@ def main(argv=None) -> int:
         # test_score with same formula on test_* columns
         sc = pd.DataFrame({
             "sharpe_net": test_eval["test_sharpe_net"],
+            "ann_return_net": test_eval.get("test_ann_return_net", test_eval["test_sharpe_net"]),
             "both_down_annualized": test_eval["test_both_down_annualized"],
             "max_drawdown": test_eval["test_max_drawdown"],
             "div_ratio": test_eval["test_div_ratio"],
@@ -1903,18 +1974,22 @@ def write_report(args, train_res, test_eval, oos_port, oos_m, sel_log, win,
     # ------------------------------------------------------------------ #
     a("## 10. TrendProtect flavor comparison menu (correlated up, protected down)")
     a("")
+    nflavor = sum(1 for s in SCHEME_ORDER if s in flavor_data)
     a(f"The brief: find an All-Weather flavor with **higher expected return** (target: beat "
       f"All-Weather's {fp(aw_te_m.get('ann_return_net'))} net OOS) while keeping equity "
       f"correlation **asymmetric** — correlated on the way up (capture upside), low/negative "
-      f"on the way down (downside protection). Four constructions of one parameterized engine "
-      f"(`_backtest_flavor`), each a long **MinVar** base leg (annual refit, cap-respecting) "
-      f"plus active overlays: a **trend-gate** (gate equity sleeves to cash when their own "
-      f"trailing-{args.tsmom_lookback}m return < 0), a **LS-TSMOM momentum overlay** "
-      f"(dollar-neutral, adds gross → leverage cost), and a **structural short** (permanent "
-      f"sleeve-level net-short, e.g. US Treasuries for a net-short-duration tilt). Leverage "
-      f"cost = **{args.lev_rate*100:.1f}% APR** on gross > 1, charged monthly. Selection uses "
-      f"the **`--score-mode {args.score_mode}`** objective. Full construction + per-flavor "
-      f"pros/cons: [`docs/portfolio-flavors.md`](../docs/portfolio-flavors.md).")
+      f"on the way down (downside protection). {nflavor} constructions of one parameterized "
+      f"engine (`_backtest_flavor`), each a long base leg (annual refit, cap-respecting — "
+      f"MinVar by default, or equal-weight `base_mode=ew` to keep real equity weight like AW) "
+      f"plus active overlays: a **trend-gate** on the equity sleeves (gate to cash when their "
+      f"own trailing-{args.tsmom_lookback}m return < 0, OR `gate_mode=short` to FLIP the equity "
+      f"sleeve to net-short on the downside signal — the direct lever for negative downside-β "
+      f"while keeping upside-β), a **LS-TSMOM momentum overlay** (dollar-neutral, adds gross → "
+      f"leverage cost), and a **structural short** (permanent sleeve-level net-short, e.g. US "
+      f"Treasuries for a net-short-duration tilt). Leverage cost = **{args.lev_rate*100:.1f}% "
+      f"APR** on gross > 1, charged monthly. Selection uses the **`--score-mode {args.score_mode}`** "
+      f"objective. Full construction + per-flavor pros/cons: "
+      f"[`docs/portfolio-flavors.md`](../docs/portfolio-flavors.md).")
     a("")
     if not flavor_data:
         a("> No TrendProtect flavors ran this invocation. Re-run with")
@@ -2021,6 +2096,65 @@ def write_report(args, train_res, test_eval, oos_port, oos_m, sel_log, win,
                  "Gross 1.20 → leverage cost "
                  f"{(0.20*args.lev_rate)*100:.2f}%/yr.",
                  "Most parameters → most overfitting surface; check the DSR / bootstrap CI."]),
+            "TG-Short": (
+                ["Flips the equity sleeve to NET-SHORT on the downside signal (the brief's "
+                 "lever) — long equity when up, short equity when down; bonds/gold/diversifiers "
+                 "stay long. Directly targets negative downside-β with positive upside-β.",
+                 "Sleeve-level netting can keep gross ≤ 1 (no leverage cost) when the short "
+                 "equity leg nets against the long book.",
+                 "Reuses the MinVar base."],
+                ["MinVar base starves high-vol equity to ~5-10% weight → little equity to "
+                 "short, so the upside capture AND the short benefit are both muted; return "
+                 "floor is well below AW.",
+                 "12m signal lags: shorts ~12m INTO a drawdown (after the drop has happened), "
+                 "longs ~12m into a rally (after the rebound).",
+                 "Whipsaw in choppy markets; check DSR / bootstrap CI."]),
+            "TG-Short-LS": (
+                ["TG-Short (short equity on downside) + a 0.20 LS-TSMOM overlay — both the "
+                 "equity flip and the broader momentum crisis-alpha leg.",
+                 "Targets the asymmetric goal from two angles.",
+                 "Smaller overlay than RP-LS-Overlay → lower leverage cost."],
+                ["Inherits the MinVar-base equity starvation AND the 12m lag AND the overlay "
+                 "whipsaw — all three costs.",
+                 f"Gross can exceed 1 → leverage cost up to "
+                 f"{(0.20*args.lev_rate)*100:.2f}%/yr.",
+                 "Most overfitting surface of the TG-Short family; check DSR / bootstrap CI."]),
+            "TG-Short-6m": (
+                ["TG-Short with a FASTER 6m trend signal — reduces the 12m lag (out of "
+                 "drawdowns sooner, into rallies sooner), so the short flip is better timed.",
+                 "Direct lever for negative downside-β.",
+                 "Sleeve-level netting can keep gross ≤ 1."],
+                ["Faster signal whipsaws MORE in choppy markets (more false flips).",
+                 "MinVar base still starves equity → muted upside capture.",
+                 "Shorter lookback → more turnover; check DSR / bootstrap CI."]),
+            "EW-Short": (
+                ["EQUAL-WEIGHT base (like All-Weather's own ~1/n across sleeves) so equity "
+                 "keeps a real weight (~12-25%) — fixes the MinVar-base equity starvation that "
+                 "left TG-Short with nothing to short and ~3% return.",
+                 "Short equity on the downside signal → negative downside-β with positive "
+                 "upside-β; return floor near AW.",
+                 "Sleeve-level netting can keep gross ≤ 1 (no leverage cost)."],
+                ["More equity weight → higher vol / drawdown than the MinVar-base flavors.",
+                 "12m signal lags (consider EW-Short-6m for less lag).",
+                 "Equal-weight ignores covariance; check DSR / bootstrap CI."]),
+            "EW-Short-LS": (
+                ["EW-Short (real equity weight + short on downside) + a 0.20 LS-TSMOM overlay.",
+                 "Highest upside capture of the family (EW base keeps equity, overlay adds "
+                 "crisis alpha).",
+                 "Targets both beat-AW return AND asymmetric protection."],
+                ["Gross can exceed 1 → leverage cost up to "
+                 f"{(0.20*args.lev_rate)*100:.2f}%/yr.",
+                 "Inherits the 12m lag and overlay whipsaw.",
+                 "Most overfitting surface; check DSR / bootstrap CI."]),
+            "EW-Short-6m": (
+                ["EW-Short with a FASTER 6m signal — real equity weight (EW base) AND less "
+                 "lag, so the short flip is both meaningful and better timed.",
+                 "Directly targets the brief: high upside-β, negative downside-β, AW-like "
+                 "return floor.",
+                 "Sleeve-level netting can keep gross ≤ 1."],
+                ["Faster signal whipsaws more; more turnover.",
+                 "Higher vol / drawdown than MinVar-base flavors (more equity).",
+                 "Most parameters → check DSR / bootstrap CI."]),
         }
         for fname in SCHEME_ORDER:
             if fname not in flavor_data:
@@ -2058,7 +2192,7 @@ def write_report(args, train_res, test_eval, oos_port, oos_m, sel_log, win,
                     and not math.isnan(m.get("ann_return_net", float("nan")))):
                 beats_aw_ret.append(fname)
         if beats_aw_ret:
-            verdm = (f"Of the four TrendProtect flavors, **{', '.join(beats_aw_ret)}** beat "
+            verdm = (f"Of the {nflavor} TrendProtect flavors, **{', '.join(beats_aw_ret)}** beat "
                      f"All-Weather's net OOS return ({fp(aw_ret)}) after the "
                      f"{args.lev_rate*100:.1f}%/yr leverage cost. Cross-check the Dn-corr / Dnβ "
                      f"columns for the asymmetric protection and the DSR / bootstrap Sharpe CI "
@@ -2066,7 +2200,7 @@ def write_report(args, train_res, test_eval, oos_port, oos_m, sel_log, win,
                      f"sleeves so DSR is conservative (see §3 effective-N), and a single "
                      f"TRAIN/TEST split is one regime.")
         else:
-            verdm = (f"None of the four TrendProtect flavors beat All-Weather's net OOS "
+            verdm = (f"None of the {nflavor} TrendProtect flavors beat All-Weather's net OOS "
                      f"return ({fp(aw_ret)}) after the {args.lev_rate*100:.1f}%/yr leverage "
                      f"cost in this window — the honest, measured answer. The flavors still "
                      f"shift the asymmetric profile (see Upβ / Dnβ / Dn-corr); whether the "
