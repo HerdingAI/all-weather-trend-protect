@@ -15,6 +15,47 @@ Root `README.md` is the entry point.
 
 ## Current state (2026-07-17)
 - Branch: `feat/expand-universe-daily-download` (commit 330ab25), **not yet pushed / no PR**.
+
+## Risk-parity peer-review round (2026-07-20, this branch)
+A critical peer review of `risk_parity_eval.py` was written to `docs/peer-review.md`
+and four methodology fixes were implemented and committed on this branch
+(`3c173af`..`c12400e`):
+
+- **Fix 1** (`3c173af`) — per-sleeve cap enforced **inside** the MinVar/ERC solver via
+  exact capped-simplex projection (`project_capped_simplex`), not post-hoc clip.
+- **Fix 2** (`c9ebe73`) — both-down regime + equity-correlation metric decoupled to
+  **external SPY/AGG** (`--ref-mode external`, default); `--ref-mode sleeves` is the
+  legacy regression guard.
+- **Fix 3 + Fix 4 + cap-integrity refinement** (`23e4471`) — **LS-TSMOM** managed-futures
+  scheme folded into the canonical pipeline (TRAIN/TEST/rolling, DSR, bootstrap CIs,
+  §9 head-to-head); DSR **effective-N** diagnostic + caveat block; and a numerical
+  refinement to Fix 1's projection (residual correction onto interior coords + drop the
+  `w/w.sum()` renorm that broke the cap) — verified 0 cap-overshoot, |sum-1|~3e-16.
+- **Peer-review doc** (`827a4d6`), **README + .gitignore** (`c12400e`).
+
+Canonical report regenerated: `output/risk_parity_eval/report_eval.md` (NOT tracked —
+regenerable with `.venv/bin/python risk_parity_eval.py`). Headline measured answer to
+the brief ("a flavor that does well where All-Weather is weak"): the **MinVar** risk-parity
+winner (OOS Sharpe 1.518, both-down −11.42%, MaxDD −5.61%, cap 20.00% = exact) **dampens**
+the AW weak spot but doesn't flip it positive; **LS-TSMOM** (Sharpe 0.347, both-down
+−4.82% — smallest of the three, equity corr 0.129) is the right *direction* but its edge
+is **not statistically significant** (DSR −0.964, Sharpe CI [−0.482, 1.213], both-down CI
+[−10.45%, +3.14%]). Effective N = 1.2 vs nominal 16,902 (DSR is conservative). Both-down
+counts (external ref): TRAIN 17 / TEST 24.
+
+**Note:** the cap-integrity refinement shifted ERC weights, which shifted the
+TRAIN-selected LS-TSMOM combo and its numbers slightly between runs — the regenerated
+report's numbers are authoritative; the `docs/peer-review.md` "Measured outcomes" block
+matches them.
+
+## Next steps (open) — risk parity
+- A proper OOS multiple-comparison test (Holm/Bonferroni over effective-N, or DSR on the
+  TRAIN max) — currently only disclosed, not implemented.
+- LS-TSMOM vol-scaling (currently equal-weight base for neutrality) + a real T-bill
+  collateral return (currently 0%, conservative — real adds ~1-2%/yr).
+- Vol-targeting + leverage + a cash/T-bill sleeve (would let risk parity *scale* risk).
+- Regime-conditioned allocation / CVaR / carry overlays.
+- Push branch + open PR if desired.
 - Universe: **342 tickers** (71 original asset-class + 128 individual stocks + 143 new
   mutual funds/ETFs/crypto from user-provided list). Defined in `pull_returns.py`
   (`ASSET_TICKERS` + `STOCK_SECTORS`).
