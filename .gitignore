@@ -11,3 +11,12 @@ output/_yf_tz_cache/
 # Re-generate any time with:  .venv/bin/python pull_daily.py  (or pull_returns.py)
 output/daily_returns_by_ticker.csv
 output/daily_prices.csv
+# Risk-parity search: large per-combination result tables (regenerable).
+# Keep the small summary CSVs + report.md tracked.
+output/risk_parity/combinations_results.csv
+output/risk_parity/combinations_results_digital.csv
+
+# Anti-overfit eval: large per-combination TRAIN result table (regenerable).
+output/risk_parity_eval/train_results.csv
+output/risk_parity_seasons/train_results_all_folds.csv
+output/risk_parity_seasons_modern/train_results_all_folds.csv
