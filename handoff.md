@@ -87,6 +87,56 @@ Trend-gate lag is a construction property, not a bug. One TRAIN/TEST split = one
 regime; flavors share sleeves → DSR conservative (effective N ≪ nominal); trust the
 bootstrap CI.
 
+## TrendProtect round 2 — gate_mode=short / EW-base / asymmetric2 (2026-07-20)
+Round 1's measured negative result (no flavor beat 7.37% with the asymmetric property)
+diagnosed three causes: (a) the **cash-gate can't produce negative Dnβ** (it only flats
+equity); (b) the **MinVar base starves equity** to ~5-10% weight → little upside to
+capture and little to short; (c) the **`asymmetric` score flees equity** (the `upβ−dnβ`
+term rewards a combo low in *both*). Round 2 fixes all three (uncommitted in working
+tree — `risk_parity_eval.py` + `docs/portfolio-flavors.md` updated):
+
+- **`gate_mode="short"`** — on the downside signal, *flip* the equity sleeve to net-short
+  (`pos *= sign(trailing-lookback)` for equity sleeves) instead of flat. The direct lever
+  for negative downside-β the brief's "long-term short a ticker" permission enables.
+- **`base_mode="ew"`** — equal-weight base leg (like AW's own ~1/n) so equity keeps a real
+  weight (~12-25%) — fixes the MinVar-base equity starvation.
+- **`--score-mode asymmetric2`** — `0.30·pct(ann_return_net) + 0.20·pct(upside_beta)
+  + 0.15·pct(−downside_beta) + 0.10·pct(−downside_corr_eq) + 0.15·pct(Sharpe)
+  + 0.10·pct(−maxDD)` — rewards a high Upβ (real equity weight) AND a high net return,
+  so the search keeps equity in the book instead of fleeing to diversifiers.
+- **Six new flavors:** TG-Short, TG-Short-LS, TG-Short-6m (MinVar base) + EW-Short,
+  EW-Short-LS, EW-Short-6m (EW base). Plus `lookback=6` per-preset override for less lag.
+- **`sc` DataFrame fix:** added `ann_return_net` column to the TEST `sc` DataFrame in
+  `main()` (the asymmetric2 score needs it; default/asymmetric paths unaffected).
+
+**Canonical run:** `output/risk_parity_eval_asym2b/report_eval.md` (regenerable:
+`.venv/bin/python risk_parity_eval.py --score-mode asymmetric2 --schemes
+EW,InvVol,InvVar,ERC,MinVar,LS-TSMOM,TrendGate,TG-Short,TG-Short-LS,TG-Short-6m,EW-Short,
+EW-Short-LS,EW-Short-6m --rolling-schemes EW,MinVar,LS-TSMOM --bootstrap 2000 --out-dir
+output/risk_parity_eval_asym2b`). 36621 TRAIN trials, 13 schemes.
+
+**Measured verdict (round 2, honest) — two findings, one per half of the brief:**
+1. **One flavor beats AW's 7.37% net OOS return: the RP winner (MinVar) at 9.29%** — but
+   it is plain long-only risk parity with **no** asymmetry (Dnβ 0.585 > Upβ 0.432, Dn-corr
+   0.747 ≈ AW). Dropping the asymmetry constraint, return is beatable; keeping it, it is
+   not (in this window).
+2. **No flavor beats 7.37% *with* the asymmetric property.** In **every** flavor Dnβ ≥
+   Upβ. The `gate_mode=short` lever does buy **real downside-correlation reduction**
+   (TG-Short-LS Dn-corr 0.199, TG-Short 0.366 vs AW 0.793) — partial progress on
+   "protected down" — but at the cost of return (3-5%) AND upside capture (Upβ also
+   crushed to 0.06-0.13). The EW-Short family (real equity + short-on-downside) was the
+   strongest direct test and **whipsawed to 0.37-3.14%** — the lagged short sells the
+   bottom of 2018 / the 2020 COVID rebound. Every flavor's DSR is negative (edge not
+   significant).
+
+**Structural blocker (consistent across both rounds):** trailing 12m/6m momentum is
+*lagging* — long into drawdown starts (eats the downside), short/flat into rally starts
+(misses the upside) → Dnβ ≥ Upβ everywhere. Beating AW on return while keeping the
+asymmetric shape needs a **leading/faster downside signal** (MA crossover, regime filter,
+equity-below-10m-MA) that exits equity *before* the drawdown and re-enters *before* the
+rally — not more TSMOM lookback tuning (that is overfitting). This is the untested lever
+for round 3.
+
 ## Next steps (open) — risk parity
 - A proper OOS multiple-comparison test (Holm/Bonferroni over effective-N, or DSR on the
   TRAIN max) — currently only disclosed, not implemented.
