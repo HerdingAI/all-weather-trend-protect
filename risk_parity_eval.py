@@ -62,9 +62,76 @@ from risk_parity_backtest import (
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(HERE, "output", "risk_parity_eval")
+TICKER_CSV = os.path.join(HERE, "output", "monthly_returns_by_ticker.csv")
 TRAIN_DEFAULT = ("2008-01-31", "2017-12-31")
 TEST_DEFAULT = ("2018-01-31", "2026-07-31")
 EULER_GAMMA = 0.5772156649015328606
+
+# External (investable, non-candidate) reference tickers for the both-down
+# regime and the "correlation with equity" metric. SPY = broad US equity TR
+# (1993-02+); AGG = broad US agg-bond TR (2003-10+, covers the canonical
+# 2008+ TRAIN/TEST window); BND/IEF are fallbacks. Using external indices
+# breaks the tautology where the reference baskets overlapped the candidate
+# universe (every bond sleeve + 3 of 4 equity sleeves were themselves the
+# reference, so a bond-heavy candidate mechanically scored "low equity corr"
+# just by holding bonds -- see docs/peer-review.md §2b).
+EXT_EQUITY_TICKER = "SPY"
+EXT_BOND_TICKERS = ["AGG", "BND", "IEF"]
+
+
+_TICKER_WIDE: pd.DataFrame | None = None
+
+
+def load_ticker_monthly(tickers: Sequence[str]) -> pd.DataFrame:
+    """Load monthly returns for the given tickers from the long-format
+    ticker CSV (date,ticker,...,monthly_return), pivoted to wide
+    (index=date, columns=ticker). Cached on first call."""
+    global _TICKER_WIDE
+    if _TICKER_WIDE is None:
+        df = pd.read_csv(TICKER_CSV, usecols=["date", "ticker", "monthly_return"])
+        df["date"] = pd.to_datetime(df["date"])
+        _TICKER_WIDE = df.pivot_table(index="date", columns="ticker",
+                                      values="monthly_return").sort_index()
+    cols = [t for t in tickers if t in _TICKER_WIDE.columns]
+    return _TICKER_WIDE[cols]
+
+
+def _external_refs(ret: pd.DataFrame) -> Tuple[pd.Series, pd.Series, str]:
+    """Build full-range external equity + bond reference series aligned to
+    ret.index. Pre-inception months (e.g. AGG before 2003-10) are filled from
+    the legacy sleeve-average reference so the series is complete; in the
+    canonical 2008+ window AGG/SPY are complete so no fallback fires."""
+    tk = load_ticker_monthly([EXT_EQUITY_TICKER] + EXT_BOND_TICKERS)
+    sleeve_eq = ret.loc[:, [s for s in EQUITY_REFERENCE if s in ret.columns]].mean(axis=1)
+    sleeve_bd = ret.loc[:, [s for s in BOND_REFERENCE if s in ret.columns]].mean(axis=1)
+    if EXT_EQUITY_TICKER in tk.columns:
+        eq = tk[EXT_EQUITY_TICKER].reindex(ret.index).combine_first(sleeve_eq)
+    else:
+        eq = sleeve_eq
+    bond_tk = next((t for t in EXT_BOND_TICKERS if t in tk.columns), None)
+    if bond_tk is None:
+        bd = sleeve_bd
+    else:
+        bd = tk[bond_tk].reindex(ret.index).combine_first(sleeve_bd)
+    return eq, bd, bond_tk or "sleeves"
+
+
+def regime_references(ret: pd.DataFrame, start, end,
+                      ref_mode: str) -> Tuple[pd.Series, pd.Series, pd.Series, str]:
+    """Return (eq_ref, bd_ref, both_down_mask, ref_label) over [start, end].
+    ref_mode='external' uses SPY + AGG (investable, non-candidate); 'sleeves'
+    reproduces the legacy sleeve-average reference exactly (regression guard)."""
+    start, end = pd.Timestamp(start), pd.Timestamp(end)
+    if ref_mode == "external":
+        eq_full, bd_full, bond_tk = _external_refs(ret)
+        eqr = eq_full.loc[start:end]
+        bdr = bd_full.loc[start:end]
+        mask = ((eqr < 0) & (bdr < 0)).fillna(False)
+        return eqr, bdr, mask, f"external: {EXT_EQUITY_TICKER} + {bond_tk}"
+    mask = both_down_mask(ret, start, end)
+    eqr = ret.loc[start:end, [s for s in EQUITY_REFERENCE if s in ret.columns]].mean(axis=1)
+    bdr = ret.loc[start:end, [s for s in BOND_REFERENCE if s in ret.columns]].mean(axis=1)
+    return eqr, bdr, mask, "sleeves (legacy)"
 
 
 # --------------------------------------------------------------------------- #
@@ -655,7 +722,8 @@ def rolling_full_select(ret_full: pd.DataFrame, avail: List[str], eq: List[str],
                         test_start: pd.Timestamp, test_end: pd.Timestamp,
                         max_size: int, min_size: int,
                         trailing_years: int = 10,
-                        erc_cap_mode: str = "capped") -> Tuple[pd.Series, pd.DataFrame]:
+                        erc_cap_mode: str = "capped",
+                        ref_mode: str = "external") -> Tuple[pd.Series, pd.DataFrame]:
     idx = ret_full.index
     test_idx = idx[(idx >= test_start) & (idx <= test_end)]
     years = sorted(set(d.year for d in test_idx))
@@ -674,11 +742,8 @@ def rolling_full_select(ret_full: pd.DataFrame, avail: List[str], eq: List[str],
             continue
         combos = enumerate_combos(trail_avail, trail_eq, trail_bd, min_size, max_size)
         panel_trail = build_panel(ret_full, trail_avail, trail_idx[0], trail_idx[-1])
-        bd_trail = both_down_mask(ret_full, trail_idx[0], trail_idx[-1])
-        eqr = ret_full.loc[trail_idx[0]:trail_idx[-1],
-                           [s for s in EQUITY_REFERENCE if s in ret_full]].mean(axis=1)
-        bdr = ret_full.loc[trail_idx[0]:trail_idx[-1],
-                           [s for s in BOND_REFERENCE if s in ret_full]].mean(axis=1)
+        eqr, bdr, bd_trail, _ = regime_references(
+            ret_full, trail_idx[0], trail_idx[-1], ref_mode)
         res = fast_search(panel_trail, ret_full, bd_trail, eqr, bdr, combos, schemes,
                           cap, cost_bps, shrink, trailing, label=f"roll{y}",
                           progress_every=10**9, erc_cap_mode=erc_cap_mode)
@@ -771,6 +836,12 @@ def main(argv=None) -> int:
                          "box-constrained solve, approximate for ERC). 'posthoc' "
                          "= legacy uncapped ERC then clip. 'none' = ignore cap "
                          "for ERC. MinVar always solves with the cap inside.")
+    ap.add_argument("--ref-mode", choices=["external", "sleeves"],
+                    default="external",
+                    help="Reference for the both-down regime + equity-correlation "
+                         "metric. 'external' (default) = SPY + AGG (investable, "
+                          "non-candidate) -- breaks the reference/universe overlap. "
+                          "'sleeves' = legacy sleeve-average reference (regression guard).")
     ap.add_argument("--shrink", choices=["lw", "none"], default="lw",
                     help="Covariance shrinkage. Default lw (Ledoit-Wolf).")
     ap.add_argument("--cost-bps", type=float, default=10.0,
@@ -819,12 +890,9 @@ def main(argv=None) -> int:
 
     panel_tr = build_panel(ret, avail, tr_s, tr_e)
     panel_te = build_panel(ret, avail, te_s, te_e)
-    bd_tr = both_down_mask(ret, tr_s, tr_e)
-    bd_te = both_down_mask(ret, te_s, te_e)
-    eqr_tr = ret.loc[tr_s:tr_e, [s for s in EQUITY_REFERENCE if s in ret.columns]].mean(axis=1)
-    bdr_tr = ret.loc[tr_s:tr_e, [s for s in BOND_REFERENCE if s in ret.columns]].mean(axis=1)
-    eqr_te = ret.loc[te_s:te_e, [s for s in EQUITY_REFERENCE if s in ret.columns]].mean(axis=1)
-    bdr_te = ret.loc[te_s:te_e, [s for s in BOND_REFERENCE if s in ret.columns]].mean(axis=1)
+    eqr_tr, bdr_tr, bd_tr, ref_label = regime_references(ret, tr_s, tr_e, args.ref_mode)
+    eqr_te, bdr_te, bd_te, _ = regime_references(ret, te_s, te_e, args.ref_mode)
+    print(f"Reference mode: {ref_label}")
     print(f"Both-down months: TRAIN {int(bd_tr.sum())}/{len(bd_tr)} | "
           f"TEST {int(bd_te.sum())}/{len(bd_te)}")
 
@@ -897,7 +965,7 @@ def main(argv=None) -> int:
         oos_port, sel_log = rolling_full_select(
             ret, avail, eq, bd, roll_schemes, args.cap, cost, args.shrink,
             args.trailing, te_s, te_e, max_size, args.min_sleeves,
-            erc_cap_mode=args.erc_cap_mode)
+            erc_cap_mode=args.erc_cap_mode, ref_mode=args.ref_mode)
         sel_log.to_csv(os.path.join(args.out_dir, "rolling_selection_log.csv"), index=False)
         oos_port.to_csv(os.path.join(args.out_dir, "oos_rolling_returns.csv"))
     oos_m = compute_metrics(oos_port.values, oos_port.values, np.zeros(len(oos_port)),
@@ -944,7 +1012,8 @@ def main(argv=None) -> int:
 
     write_report(args, train_res, test_eval, oos_port, oos_m, sel_log, win, win_combo,
                  win_sch, win_te_m, aw_tr_m, aw_te_m, diag, dsr, dsr_oos_roll,
-                 schemes, avail, combos, n_trials)
+                 schemes, avail, combos, n_trials, ref_label,
+                 int(bd_tr.sum()), int(bd_te.sum()))
     print(f"\nReport: {os.path.join(args.out_dir, 'report_eval.md')}")
     print("Done.")
     return 0
@@ -983,7 +1052,8 @@ def overfit_diag(train_res, test_eval, win, win_te_m, aw_te_m, dsr) -> Dict[str,
 
 def write_report(args, train_res, test_eval, oos_port, oos_m, sel_log, win,
                  win_combo, win_sch, win_te_m, aw_tr_m, aw_te_m, diag, dsr,
-                 dsr_oos_roll, schemes, avail, combos, n_trials):
+                 dsr_oos_roll, schemes, avail, combos, n_trials, ref_label,
+                 bd_tr_count, bd_te_count):
     L = []; a = L.append
     a("# Risk-Parity Resilience Search — Canonical (Out-of-Sample) Report")
     a("")
@@ -1011,6 +1081,12 @@ def write_report(args, train_res, test_eval, oos_port, oos_m, sel_log, win,
     a(f"  shrinkage, trailing {args.trailing}m, annual refit.")
     a("- **Score =** 0.30·pct(net Sharpe) + 0.25·pct(both-down ann ret) + 0.15·pct(−maxDD)")
     a("  + 0.15·pct(diversification ratio) + 0.15·pct(−corr with equity in both-down months).")
+    a(f"- **Both-down regime reference:** {ref_label} (`--ref-mode {args.ref_mode}`). "
+      f"Both-down months: TRAIN {bd_tr_count} | TEST {bd_te_count}. 'external' uses "
+      f"investable non-candidate indices (SPY/AGG) so the equity-correlation metric "
+      f"measures a hedge, not a tautology from the reference overlapping the universe.")
+    a(f"- **ERC cap mode:** {args.erc_cap_mode} (cap enforced inside the solver for MinVar "
+      f"and ERC-capped; see §2 'Cap integrity').")
     a("")
     a("## 2. Headline — selected winner, OUT OF SAMPLE (TEST)")
     a("")
