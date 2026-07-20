@@ -436,6 +436,31 @@ construction: the never-flip base, the additive short overlay, the up/down-month
 pseudocode, the five presets), §5e (round-5 measured menu + verdict + top picks + the
 reporting caveat + the round-6 lever), round-5 reproduction command, canonical-reports list.
 
+## INVESTIGATION CLOSED — final honest conclusion (2026-07-20, user decision)
+After five rounds / 27 TrendProtect flavors, **the brief's property was not achieved**:
+no flavor both beats All-Weather's 7.37% / Sharpe 1.055 net OOS AND has Upβ > Dnβ. The
+two requirements are in tension on this universe, with one structural blocker per failure
+mode (rounds 2-4b: shorting equity on a downside gate drives Upβ negative — structural,
+not a tunable lag; round 5: decoupling fixes Upβ but an equity-only overlay can't bring
+Dnβ down because bonds/duration fall WITH equities in both-down months and the dma/ma gate
+fires too late). User directed to **stop and document** rather than build round 6.
+
+The synthesized bottom line is written as **§0 of `docs/portfolio-flavors.md`** ("Bottom
+line — the honest conclusion across all five rounds"): the two structural blockers, a
+"what actually won by objective" table (AW / RP winner / EW-AsymMA-Tight / EW-MA-Short /
+EW-Hedge-MA), the statistical-honesty caveat (every DSR negative, one TRAIN/TEST split),
+and the untested round-6 lever (short duration/TLT in the overlay + a fast equity-drawdown
+trigger) recorded as the single most likely next step if the property is ever pursued.
+
+**Measured practical picks (OOS 2018-2026, NOT statistically significant):**
+- Best risk-adjusted long-only benchmark: All-Weather 7.37% / 1.055 (nothing beat its Sharpe).
+- Beats AW on return, no asymmetry: RP winner (MinVar) 9.94% / 0.945 (Dnβ 0.619 > Upβ 0.406).
+- Best downside protection of all 27: EW-AsymMA-Tight, both-down -10.91%, Dn-corr 0.417
+  (but Upβ ≈ Dnβ — symmetric short-leaning, asymmetry collapsed).
+- Best balance (positive Upβ + downside < AW): EW-MA-Short 4.25% / 0.613, Upβ 0.013,
+  both-down -12.97%, Dn-corr 0.224 — the closest any flavor came to the brief.
+- Round-5 best (Upβ fixed by construction): EW-Hedge-MA 3.60% / 0.463, Upβ 0.127, Dnβ 0.362.
+
 ## Next steps (open) — risk parity
 - A proper OOS multiple-comparison test (Holm/Bonferroni over effective-N, or DSR on the
   TRAIN max) — currently only disclosed, not implemented.

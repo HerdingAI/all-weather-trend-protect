@@ -48,6 +48,76 @@ See also the peer review: [`docs/peer-review.md`](peer-review.md).
 
 ---
 
+## 0. Bottom line — the honest conclusion across all five rounds
+
+**The brief's property was not achieved.** After five rounds and **27 TrendProtect flavors**
+(plus the 6 base schemes), **no flavor both (a) beats All-Weather's 7.37% / Sharpe 1.055
+net out-of-sample AND (b) has Upβ > Dnβ** ("correlated on the way up, not on the way down"
+with a positive upside beta and a non-positive downside beta). The two requirements are in
+tension on this universe, and each round isolated one structural reason they pull apart:
+
+- **Rounds 2–4b: shorting equity on a downside gate drives Upβ negative.** The only flavors
+  that ever got Dnβ ≤ 0 were the round-4 hysteretic `asym_ma` family (EW-AsymMA-Short-6/9,
+  EW-AsymMA-Tight), and every one of them had Upβ ≈ −0.11 too. Round 4b's sweep
+  (`slow_entry` {6,9,12} × `fast_exit` {2,3} + a vol-regime gate) spanned the grid and proved
+  this is **structural, not a tunable lag**: a single price-gate that flips the equity sleeve
+  short necessarily carries that short through the early part of recoveries, and the EW
+  base's other sleeves don't track equity rallies — so the portfolio's up-month beta is
+  dominated by the (short) equity sleeve and goes negative. You cannot fix it by tuning the
+  band. The tighter the band, the more *symmetric* (both negative), not the more asymmetric.
+- **Round 5: decoupling fixes Upβ but an equity-only overlay can't bring Dnβ down.** The
+  decoupled insurance overlay (a never-flipping long base + a separate additive short on the
+  equity sleeves) made Upβ positive (0.015–0.240) across all five presets — the round-4b
+  blocker is genuinely gone. But Dnβ stayed strongly positive (0.362–0.586) and Dnβ ≫ Upβ in
+  every preset, because an *equity-only* short cannot touch the both-down (stagflation)
+  months where **bonds and duration fall *with* equities**, and the lagging `dma`/`ma`
+  downside signal fires ~12m after the drop (whipsaw), so the months that need hedging are
+  hedged late or not at all. Both-down came out *worse* (−20% to −28%) than the round-4b
+  hysteretic family.
+
+**What actually won, by objective (measured, OOS 2018–2026):**
+
+| Objective | Flavor | Ann ret | Sharpe | Upβ | Dnβ | Dn-corr | Both-down |
+|---|---|---:|---:|---:|---:|---:|---:|
+| Best risk-adjusted long-only (the benchmark) | **All-Weather** | 7.37% | **1.055** | 0.327 | 0.475 | 0.793 | -18.74% |
+| Beats AW on return (no asymmetry) | **RP winner (MinVar)** | 9.94% | 0.945 | 0.406 | 0.619 | 0.708 | -31.91% |
+| Best downside protection of all 27 | **EW-AsymMA-Tight** (r4b) | 3.85% | 0.642 | 0.057 | 0.271 | 0.417 | **-10.91%** |
+| Best balance: positive Upβ + decent downside | **EW-MA-Short** (r3) | 4.25% | 0.613 | 0.013 | 0.123 | 0.224 | -12.97% |
+| Round-5 best (Upβ fixed by construction) | **EW-Hedge-MA** (r5) | 3.60% | 0.463 | 0.127 | 0.362 | 0.510 | -20.17% |
+
+- **If the goal is purely return** and the asymmetric property is relaxed: the **RP winner
+  (MinVar)** at 9.94% beats All-Weather on return — but with Dnβ 0.619 > Upβ 0.406 and the
+  worst both-down (−31.91%), it is *more* correlated to equities on the way down, the
+  opposite of the brief.
+- **If "protected down" is the goal** regardless of upside: **EW-AsymMA-Tight** has the best
+  both-down (−10.91%) and lowest Dn-corr (0.417) of any flavor across all rounds — but its
+  Upβ ≈ Dnβ ≈ 0.06–0.27 (round-5 re-measure; the asymmetry collapsed to a symmetric
+  short-leaning book). It is a downside hedge, not "correlated up, protected down."
+- **If a balance is the goal** (the closest any flavor came to the brief): **EW-MA-Short**
+  is the only flavor with **positive Upβ (0.013) AND both-down (−12.97%) better than
+  All-Weather** — but its Dnβ (0.123) still exceeds Upβ, the return (4.25%) is well below AW,
+  and Dn-corr is 0.224 (low but positive, not negative).
+
+**Statistical honesty (read before acting on any of the above).** Every flavor's
+Deflated Sharpe Ratio is negative (−0.59 to −1.47); the flavors share sleeves (effective
+N ≪ nominal N) and the selection is one TRAIN (2008–17) / TEST (2018–26) split = one
+regime. The Sharpe 95% CIs all span zero. So **none of the "wins" above is statistically
+significant** — this is an honest exploration of what the constructions *can* do, not a
+proven edge, and the per-round verdicts below should be read in that light.
+
+**The untested lever (identified, not run).** The round-5 diagnosis points to a concrete
+mechanical fix for the both-down gap: extend the overlay to **short the sleeves that fall in
+both-down — bonds / duration (the brief's "long-term short a ticker" = short TLT / long
+duration as a conditional overlay)**, not equity alone, and/or replace the lagging trend
+gate with a **fast equity-drawdown trigger** that fires *in* down-months. This was *not*
+built — the investigation was closed here by decision. It is the single most likely next
+step if the property is to be pursued further.
+
+The rest of this document is the full per-flavor catalog and the per-round measured menus
+(§5a–§5e) from which this bottom line is synthesized.
+
+---
+
 ## 1. Common setup (all flavors share this)
 
 - **Universe / sleeves (12):** US Equity, International Equity, US REIT, Preferred Stock,
