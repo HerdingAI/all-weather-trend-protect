@@ -377,10 +377,29 @@ SCHEMES: Dict[str, Callable] = {
     "EW": s_ew, "InvVol": s_invvol, "InvVar": s_invvar,
     "ERC": s_erc, "MinVar": s_minvar, "LS-TSMOM": s_ls_tsmom,
 }
-SCHEME_ORDER = ["EW", "InvVol", "InvVar", "ERC", "MinVar", "LS-TSMOM"]
+SCHEME_ORDER = ["EW", "InvVol", "InvVar", "ERC", "MinVar", "LS-TSMOM",
+                "TrendGate", "RP-LS-Overlay", "StructShort", "TG-LS-Overlay"]
 # Schemes that solve a covariance-based target weight annually (vs LS-TSMOM,
 # which is a monthly momentum signal with no covariance target).
 COV_SCHEMES = {"EW", "InvVol", "InvVar", "ERC", "MinVar"}
+# TrendProtect flavor presets -- four constructions of one parameterized
+# engine (_backtest_flavor). Each pairs a long MinVar base leg (annual refit,
+# cap-respecting) with active overlays targeting the All-Weather weak spot
+# (both-down / stagflation) while keeping equity upside. See docs/portfolio-
+# flavors.md for the full construction + measured comparison.
+#   trend_gate   : gate equity sleeves to cash when their trailing-12m < 0.
+#   w_overlay    : LS-TSMOM dollar-neutral momentum sleeve gross (adds gross).
+#   struct_short : (sleeve_name, w_short) permanent sleeve-level net short.
+FLAVOR_PRESETS: Dict[str, dict] = {
+    "TrendGate":     {"trend_gate": True,  "w_overlay": 0.0,
+                      "struct_short": None},
+    "RP-LS-Overlay": {"trend_gate": False, "w_overlay": 0.30,
+                      "struct_short": None},
+    "StructShort":   {"trend_gate": False, "w_overlay": 0.0,
+                      "struct_short": ("US Treasuries", 0.30)},
+    "TG-LS-Overlay": {"trend_gate": True,  "w_overlay": 0.20,
+                      "struct_short": None},
+}
 
 
 def cap_weights(w: np.ndarray, cap: float) -> np.ndarray:
@@ -515,17 +534,148 @@ def _backtest_ls_tsmom(panel: pd.DataFrame, ret_full: pd.DataFrame,
             "last_w": last_w, "div_ratio": float("nan")}
 
 
+def _backtest_flavor(panel: pd.DataFrame, ret_full: pd.DataFrame,
+                     sleeve_idx: List[int], eq: Optional[List[str]],
+                     precomp: Dict[pd.Timestamp, Tuple[np.ndarray, np.ndarray]],
+                     preset: dict, lookback: int, cost_bps: float,
+                     lev_rate: float, cap: float = 0.20,
+                     erc_cap_mode: str = "capped") -> Dict[str, np.ndarray]:
+    """TrendProtect flavor backtest -- one parameterized function for all four
+    constructions (the FLAVOR_PRESETS are just knobs of this one engine).
+
+    Each month the position is rebuilt from a long MinVar base leg (annual refit,
+    cap-respecting, reuses the Fix-1 solver) plus up to three active overlays:
+
+      * trend-gate: equity sleeves are gated to cash when their own trailing-12m
+        return is negative (``pos *= 1{mom_i>0}`` for equity sleeves only; bonds /
+        gold / diversifiers stay long). Long-only, gross <= 1.
+      * LS-TSMOM overlay: a dollar-neutral momentum sleeve
+        ``+w_overlay * base_w * sign(mom_i)`` added on top of the long leg. Adds
+        ``w_overlay`` of gross -> leverage cost on gross > 1.
+      * structural short: ``-= w_short`` on one named sleeve, held permanently
+        (sleeve-level netting: a long US-Treasuries leg of 0.20 shorted by 0.30
+        becomes net -0.10; ticker-level shorting that would ADD gross is a flagged
+        refinement). Net-short-duration tilt for the 2022-style bond rout.
+
+    Costs: same 10 bps/side turnover machinery as ``backtest`` (two-way turnover
+    on the full position vector), PLUS a monthly leverage funding cost
+    ``max(0, gross_notional - 1) * lev_rate/12`` when the gross notional exceeds
+    1 (overlay flavors). Long-only TrendGate never pays leverage cost. The
+    position drifts to end of month and is rebalanced to the (signal-modified)
+    target next month, so turnover captures both the passive drift-correction and
+    the active signal changes (gate toggles, overlay sign flips)."""
+    idx = panel.index
+    sleeves_all = list(panel.columns)
+    names = [sleeves_all[i] for i in sleeve_idx]
+    T = len(idx)
+    n = len(sleeve_idx)
+    R = panel.values[:, sleeve_idx]
+    eq_set = set(eq) if eq else set()
+    is_eq = np.array([nm in eq_set for nm in names], dtype=bool)
+    trend_gate = bool(preset.get("trend_gate", False))
+    w_overlay = float(preset.get("w_overlay", 0.0))
+    ss = preset.get("struct_short")
+    short_name = ss[0] if ss else None
+    w_short = float(ss[1]) if ss else 0.0
+    short_i = (names.index(short_name)
+               if (short_name is not None and short_name in names) else -1)
+
+    # Trailing momentum per sleeve, with pre-window history so the first
+    # ``lookback`` months still get a causal signal (matches _backtest_ls_tsmom).
+    if ret_full is not None and set(names).issubset(ret_full.columns):
+        pre = ret_full.loc[:idx[0]].iloc[:-1].tail(lookback)
+        hist = pd.concat([pre[names], ret_full.loc[idx[0]:idx[-1], names]], axis=0)
+    else:
+        hist = panel[names]
+    H = hist.values
+    Hidx = hist.index
+
+    refit_set = set(_refit_dates(idx, "A"))
+    base_w = None          # annual MinVar long-leg target (constant between refits)
+    pos = None             # drifted actual position (end of last month)
+    last_w = None
+    gross = np.zeros(T); net = np.zeros(T); turn = np.zeros(T)
+    for tpos in range(T):
+        d = idx[tpos]
+        if d in refit_set and d in precomp:
+            cov_full, vol_full = precomp[d]
+            cov = cov_full[np.ix_(sleeve_idx, sleeve_idx)]
+            vol = vol_full[sleeve_idx]
+            try:
+                wv = s_minvar(cov, vol, cap=cap, erc_cap_mode=erc_cap_mode)
+                if (not np.all(np.isfinite(wv))) or wv.sum() <= 0:
+                    wv = np.ones(n) / n
+                if 0.0 < cap < 1.0 and wv.max() > cap + 1e-6:
+                    wv = cap_weights(wv, cap)
+                else:
+                    wv = wv / wv.sum()
+            except Exception:
+                wv = cap_weights(np.ones(n) / n, cap)
+            base_w = wv
+        if base_w is None:
+            continue
+        # Trailing-12m momentum per sleeve (causal).
+        loc = Hidx.get_loc(d)
+        if loc >= lookback:
+            mom = np.prod(1.0 + H[loc - lookback:loc], axis=0) - 1.0
+        else:
+            mom = np.zeros(n)            # warm-up: no signal (flat overlay / open gate)
+        # Long leg, optional trend-gate on equity sleeves.
+        long_leg = base_w.copy()
+        if trend_gate:
+            gate = np.where(mom > 0.0, 1.0, 0.0)
+            long_leg = long_leg * np.where(is_eq, gate, 1.0)
+        # Structural short (sleeve-level netting).
+        if short_i >= 0:
+            long_leg[short_i] -= w_short
+        # LS-TSMOM dollar-neutral momentum overlay.
+        pos_target = long_leg.copy()
+        if w_overlay > 0.0:
+            pos_target = pos_target + w_overlay * base_w * np.sign(mom)
+        # Turnover (two-way, full position vector), gross/net, leverage funding.
+        if pos is None:
+            t = float(np.abs(pos_target).sum())
+        else:
+            t = float(np.abs(pos_target - pos).sum())
+        turn[tpos] = t
+        g = float(pos_target @ R[tpos])
+        gross[tpos] = g
+        gross_notional = float(np.abs(pos_target).sum())
+        if lev_rate > 0.0 and gross_notional > 1.0:
+            net[tpos] = g - t * cost_bps - (gross_notional - 1.0) * (lev_rate / 12.0)
+        else:
+            net[tpos] = g - t * cost_bps
+        # Drift to end of month as a fraction of portfolio value (matches
+        # backtest / _backtest_ls_tsmom; pv > 0 since |g| <= max|R| < 1).
+        w = pos_target * (1.0 + R[tpos])
+        pv = 1.0 + g
+        pos = w / pv if pv > 1e-6 else pos_target
+        last_w = pos_target
+    # Long/short -> covariance diversification ratio is not meaningful.
+    return {"gross": gross, "net": net, "turnover": turn,
+            "last_w": last_w, "div_ratio": float("nan")}
+
+
 def backtest(panel: pd.DataFrame, precomp: Dict[pd.Timestamp, Tuple[np.ndarray, np.ndarray]],
              sleeve_idx: List[int], scheme: str, cap: float, cost_bps: float,
              cadence: str = "A", erc_cap_mode: str = "capped",
              ret_full: Optional[pd.DataFrame] = None,
-             tsmom_lookback: int = 12) -> Dict[str, np.ndarray]:
+             tsmom_lookback: int = 12,
+             eq: Optional[List[str]] = None,
+             lev_rate: float = 0.0) -> Dict[str, np.ndarray]:
     """Backtest one combo (via its sleeve position indices) under one scheme.
     Returns gross, net, turnover monthly arrays + last weights + last cov-based
     diversification ratio. LS-TSMOM is a monthly momentum signal (no annual
-    refit / no covariance target) and dispatches to _backtest_ls_tsmom."""
+    refit / no covariance target) and dispatches to _backtest_ls_tsmom. The four
+    TrendProtect flavors dispatch to _backtest_flavor (needs `eq` for the equity
+    trend-gate and `lev_rate` for the leverage funding cost). Long-only COV
+    schemes ignore eq / lev_rate."""
     if scheme == "LS-TSMOM":
         return _backtest_ls_tsmom(panel, ret_full, sleeve_idx, tsmom_lookback, cost_bps)
+    if scheme in FLAVOR_PRESETS:
+        return _backtest_flavor(panel, ret_full, sleeve_idx, eq, precomp,
+                                FLAVOR_PRESETS[scheme], tsmom_lookback, cost_bps,
+                                lev_rate, cap=cap, erc_cap_mode=erc_cap_mode)
     idx = panel.index
     R = panel.values
     T = len(idx)
@@ -642,6 +792,32 @@ def compute_metrics(net: np.ndarray, gross: np.ndarray, turnover: np.ndarray,
         m["corr_eq_bothdown"] = float(bd.corr(eq_ref.reindex(s.index)[bd_mask]))
     else:
         m["corr_eq_bothdown"] = 0.0
+    # Asymmetric equity-correlation metrics — the "correlated up, not down" brief.
+    # Upside/downside beta to the equity ref (beta of portfolio to equity on
+    # equity-up vs equity-down months), and correlation with equity on equity-
+    # down months. A flavor that captures equity rallies but protects in equity
+    # drawdowns has upside_beta ~ O(1), downside_beta << upside_beta, and low
+    # downside_corr_eq (ideally negative). Used by the asymmetric score-mode.
+    eq_a = eq_ref.reindex(s.index)
+    up = (eq_a > 0).fillna(False)
+    dn = (eq_a < 0).fillna(False)
+    def _beta(seg_eq: np.ndarray, seg_p: np.ndarray) -> float:
+        if len(seg_eq) >= 3 and float(np.var(seg_eq, ddof=1)) > 0 \
+                and float(np.var(seg_p, ddof=1)) > 0:
+            return float(np.cov(seg_p, seg_eq, ddof=1)[0, 1]
+                         / float(np.var(seg_eq, ddof=1)))
+        return 0.0
+    m["upside_beta"] = _beta(eq_a[up].values, s[up].values)
+    m["downside_beta"] = _beta(eq_a[dn].values, s[dn].values)
+    m["updown_beta_diff"] = m["upside_beta"] - m["downside_beta"]
+    if len(eq_a[dn]) >= 3 and s[dn].std() > 0 and eq_a[dn].std() > 0:
+        m["downside_corr_eq"] = float(s[dn].corr(eq_a[dn]))
+    else:
+        m["downside_corr_eq"] = 0.0
+    m["up_market_ann"] = float(s[up].mean() * 12) if int(up.sum()) > 0 else 0.0
+    m["down_market_ann"] = float(s[dn].mean() * 12) if int(dn.sum()) > 0 else 0.0
+    m["n_up_market"] = int(up.sum())
+    m["n_down_market"] = int(dn.sum())
     # crisis windows (net cumulative)
     cres = []
     for name, (a, b) in CRISIS_WINDOWS.items():
@@ -661,7 +837,19 @@ def compute_metrics(net: np.ndarray, gross: np.ndarray, turnover: np.ndarray,
 # Resilience score (encodes "uncorrelated positive returns")
 # --------------------------------------------------------------------------- #
 
-def resilience_score(df: pd.DataFrame) -> pd.Series:
+def resilience_score(df: pd.DataFrame, score_mode: str = "default") -> pd.Series:
+    if score_mode == "asymmetric":
+        # Reward upside capture, penalize downside beta + downside equity
+        # correlation, keep Sharpe / both-down / drawdown as floor guards. This
+        # is the "correlated to equities on the way up, low/negative on the way
+        # down" objective the brief asks for, operationalized for selection.
+        s_sharpe = df["sharpe_net"].rank(pct=True)
+        s_asym = (df["upside_beta"] - df["downside_beta"]).rank(pct=True)
+        s_dcorr = (-df["downside_corr_eq"]).rank(pct=True)
+        s_bd = df["both_down_annualized"].rank(pct=True)
+        s_dd = (-df["max_drawdown"]).rank(pct=True)
+        return 100.0 * (0.30 * s_sharpe + 0.20 * s_asym + 0.20 * s_dcorr
+                        + 0.15 * s_bd + 0.15 * s_dd).fillna(0.0)
     s_sharpe = df["sharpe_net"].rank(pct=True)
     s_bd = df["both_down_annualized"].rank(pct=True)
     s_dd = (-df["max_drawdown"]).rank(pct=True)
@@ -789,7 +977,10 @@ def fast_search(panel: pd.DataFrame, ret_full: pd.DataFrame, both_down: pd.Serie
                 shrink: str, trailing: int, label: str = "",
                 progress_every: int = 2000,
                 erc_cap_mode: str = "capped",
-                tsmom_lookback: int = 12) -> pd.DataFrame:
+                tsmom_lookback: int = 12,
+                eq: Optional[List[str]] = None,
+                score_mode: str = "default",
+                lev_rate: float = 0.0) -> pd.DataFrame:
     sleeves_all = list(panel.columns)
     pos = {s: i for i, s in enumerate(sleeves_all)}
     precomp = precompute_refits(ret_full, sleeves_all, panel.index, trailing, shrink)
@@ -803,7 +994,8 @@ def fast_search(panel: pd.DataFrame, ret_full: pd.DataFrame, both_down: pd.Serie
         for sch in schemes:
             bt = backtest(panel, precomp, idxs, sch, cap, cost_bps,
                           erc_cap_mode=erc_cap_mode, ret_full=ret_full,
-                          tsmom_lookback=tsmom_lookback)
+                          tsmom_lookback=tsmom_lookback,
+                          eq=eq, lev_rate=lev_rate)
             m = compute_metrics(bt["net"], bt["gross"], bt["turnover"], panel.index,
                                 both_down, eq_ref, bd_ref, bt["div_ratio"])
             row = {"combo": ",".join(combo), "scheme": sch, "n_sleeves": len(combo)}
@@ -819,7 +1011,7 @@ def fast_search(panel: pd.DataFrame, ret_full: pd.DataFrame, both_down: pd.Serie
                       f"({done/max(dt,1e-9):.1f}/s)", flush=True)
     df = pd.DataFrame(rows)
     if not df.empty:
-        df["resilience_score"] = resilience_score(df)
+        df["resilience_score"] = resilience_score(df, score_mode)
         df["rank"] = df["resilience_score"].rank(ascending=False, method="min").astype(int)
         df = df.sort_values("rank").reset_index(drop=True)
         # Fix 4: effective-N diagnostic. DSR uses N = (#combos * #schemes) but
@@ -881,7 +1073,9 @@ def rolling_full_select(ret_full: pd.DataFrame, avail: List[str], eq: List[str],
                         trailing_years: int = 10,
                         erc_cap_mode: str = "capped",
                         ref_mode: str = "external",
-                        tsmom_lookback: int = 12) -> Tuple[pd.Series, pd.DataFrame]:
+                        tsmom_lookback: int = 12,
+                        score_mode: str = "default",
+                        lev_rate: float = 0.0) -> Tuple[pd.Series, pd.DataFrame]:
     idx = ret_full.index
     test_idx = idx[(idx >= test_start) & (idx <= test_end)]
     years = sorted(set(d.year for d in test_idx))
@@ -904,7 +1098,8 @@ def rolling_full_select(ret_full: pd.DataFrame, avail: List[str], eq: List[str],
             ret_full, trail_idx[0], trail_idx[-1], ref_mode)
         res = fast_search(panel_trail, ret_full, bd_trail, eqr, bdr, combos, schemes,
                           cap, cost_bps, shrink, trailing, label=f"roll{y}",
-                          progress_every=10**9, erc_cap_mode=erc_cap_mode)
+                          progress_every=10**9, erc_cap_mode=erc_cap_mode,
+                          eq=trail_eq, score_mode=score_mode, lev_rate=lev_rate)
         if res.empty:
             continue
         best = res.iloc[0]
@@ -924,6 +1119,25 @@ def rolling_full_select(ret_full: pd.DataFrame, avail: List[str], eq: List[str],
         pos_map = {s: i for i, s in enumerate(panel_trail.columns)}
         cov = cov_full[np.ix_([pos_map[s] for s in combo], [pos_map[s] for s in combo])]
         vol = vol_full[[pos_map[s] for s in combo]]
+        if sch in FLAVOR_PRESETS:
+            # TrendProtect flavor over the hold year -- monthly-signal engine,
+            # so it does NOT fit the static-weight-hold COV branch below.
+            # Dispatch to _backtest_flavor on the same footing as TRAIN/TEST
+            # (precomp already solved above; eq = trailing-window equity sleeves).
+            idxs = list(range(len(combo)))
+            bt = _backtest_flavor(panel_hold, ret_full, idxs, trail_eq, precomp,
+                                  FLAVOR_PRESETS[sch], tsmom_lookback, cost_bps,
+                                  lev_rate, cap=cap, erc_cap_mode=erc_cap_mode)
+            chunk_ret = pd.Series(bt["net"], index=panel_hold.index)
+            chunks.append(chunk_ret)
+            log.append({"year": y, "combo": ",".join(combo), "scheme": sch,
+                        "sel_score": float(best["resilience_score"]),
+                        "sel_sharpe": float(best["sharpe_net"]),
+                        "sel_both_down_ann": float(best["both_down_annualized"]),
+                        "top_weight": f"flavor gross {float(np.abs(bt['last_w']).sum()):.2f}"})
+            print(f"  rolling {y}: {len(combos)} combos x {len(schemes)} sch -> "
+                  f"{combo} / {sch} (score {best['resilience_score']:.1f})", flush=True)
+            continue
         if sch == "LS-TSMOM":
             # Monthly momentum signal over the hold year (no static weight to
             # hold). Reuse _backtest_ls_tsmom so rolling LS-TSMOM is on the same
@@ -1037,6 +1251,23 @@ def main(argv=None) -> int:
                     help="Trailing-month lookback for the LS-TSMOM (managed-"
                          "futures) momentum signal. Default 12 (matches "
                          "all_weather_v2.backtest_ls).")
+    ap.add_argument("--score-mode", choices=["default", "asymmetric"],
+                    default="default",
+                    help="Resilience-score objective for TRAIN selection. "
+                         "'default' (default) = 0.30 Sharpe + 0.25 both-down ann "
+                         "+ 0.15 (-maxDD) + 0.15 div ratio + 0.15 (-corr with "
+                         "equity in both-down) -- the legacy 'uncorrelated positive "
+                         "returns' objective. 'asymmetric' = 0.30 Sharpe + 0.20 "
+                         "(upside_beta - downside_beta) + 0.20 (-downside_corr_eq) "
+                         "+ 0.15 both-down ann + 0.15 (-maxDD) -- the 'correlated up, "
+                         "protected down' objective. Only changes selection; metrics "
+                         "are always computed.")
+    ap.add_argument("--lev-rate", type=float, default=0.058,
+                    help="Annual funding cost on gross > 1 (leverage). Default 0.058 "
+                         "(5.8 percent APR). Charged monthly as max(0, gross-1)*lev_rate/12 "
+                         "in the TrendProtect flavor backtests. 0 disables the "
+                         "leverage cost (long-only COV schemes are unaffected -- "
+                         "they always run gross=1).")
     ap.add_argument("--no-rolling", action="store_true")
     ap.add_argument("--out-dir", default=OUT_DIR)
     args = ap.parse_args(argv)
@@ -1044,8 +1275,9 @@ def main(argv=None) -> int:
     os.makedirs(args.out_dir, exist_ok=True)
     tr_s, tr_e = pd.Timestamp(args.train_start), pd.Timestamp(args.train_end)
     te_s, te_e = pd.Timestamp(args.test_start), pd.Timestamp(args.test_end)
-    schemes = [s.strip() for s in args.schemes.split(",") if s.strip() in SCHEMES]
-    roll_schemes = [s.strip() for s in args.rolling_schemes.split(",") if s.strip() in SCHEMES]
+    valid = set(SCHEMES) | set(FLAVOR_PRESETS)
+    schemes = [s.strip() for s in args.schemes.split(",") if s.strip() in valid]
+    roll_schemes = [s.strip() for s in args.rolling_schemes.split(",") if s.strip() in valid]
     cost = args.cost_bps / 10000.0
 
     print("=" * 74)
@@ -1087,7 +1319,8 @@ def main(argv=None) -> int:
     train_res = fast_search(panel_tr, ret, bd_tr, eqr_tr, bdr_tr, combos, schemes,
                             args.cap, cost, args.shrink, args.trailing, label="TRAIN",
                             erc_cap_mode=args.erc_cap_mode,
-                            tsmom_lookback=args.tsmom_lookback)
+                            tsmom_lookback=args.tsmom_lookback,
+                            eq=eq, score_mode=args.score_mode, lev_rate=args.lev_rate)
     train_res.to_csv(os.path.join(args.out_dir, "train_results.csv"), index=False)
     print(f"Wrote train_results.csv ({len(train_res)} rows)")
 
@@ -1130,8 +1363,11 @@ def main(argv=None) -> int:
             "max_drawdown": test_eval["test_max_drawdown"],
             "div_ratio": test_eval["test_div_ratio"],
             "corr_eq_bothdown": test_eval["test_corr_eq_bothdown"],
+            "upside_beta": test_eval.get("test_upside_beta", 0.0),
+            "downside_beta": test_eval.get("test_downside_beta", 0.0),
+            "downside_corr_eq": test_eval.get("test_downside_corr_eq", 0.0),
         })
-        test_eval["test_score"] = resilience_score(sc).values
+        test_eval["test_score"] = resilience_score(sc, args.score_mode).values
         test_eval["test_rank"] = test_eval["test_score"].rank(ascending=False, method="min").astype(int)
     test_eval.to_csv(os.path.join(args.out_dir, "test_eval_topN.csv"), index=False)
 
@@ -1206,6 +1442,55 @@ def main(argv=None) -> int:
             rp_te_m = compute_metrics(rp_bt["net"], rp_bt["gross"], rp_bt["turnover"],
                                       panel_te.index, bd_te, eqr_te, bdr_te, rp_bt["div_ratio"])
 
+    # TrendProtect flavors: per-flavor TRAIN-best -> TEST eval, each with its own
+    # per-family DSR (n_trials = #combos in the family) + block-bootstrap CIs.
+    # Mirrors the LS-TSMOM block so all flavors are on the same statistical
+    # footing for the §10 comparison menu. flavors = the 4 FLAVOR_PRESETS keys
+    # actually present in this run's scheme set.
+    flavor_names = [s for s in SCHEME_ORDER if s in FLAVOR_PRESETS and s in schemes]
+    flavor_data: Dict[str, Dict[str, object]] = {}
+    for fname in flavor_names:
+        f_train = train_res[train_res["scheme"] == fname].sort_values("rank")
+        if f_train.empty:
+            continue
+        f_win = f_train.iloc[0]
+        f_combo = f_win["combo"].split(",")
+        f_idxs = [list(panel_te.columns).index(s) for s in f_combo]
+        f_bt = backtest(panel_te, pre_te, f_idxs, fname, args.cap, cost,
+                        erc_cap_mode=args.erc_cap_mode, ret_full=ret,
+                        tsmom_lookback=args.tsmom_lookback,
+                        eq=eq, lev_rate=args.lev_rate)
+        f_te_m = compute_metrics(f_bt["net"], f_bt["gross"], f_bt["turnover"],
+                                 panel_te.index, bd_te, eqr_te, bdr_te, f_bt["div_ratio"])
+        f_dsr = deflated_sharpe(f_bt["net"], max(len(combos), 2))
+        f_diag: Dict[str, float] = {}
+        if len(f_bt["net"]) >= 24:
+            fp_, flo, fhi = block_bootstrap_ci(f_bt["net"], _ann_sharpe, args.bootstrap)
+            f_diag["oos_sharpe"] = fp_
+            f_diag["oos_sharpe_ci95_lo"] = flo
+            f_diag["oos_sharpe_ci95_hi"] = fhi
+            bd_f = pd.Series(f_bt["net"], index=panel_te.index)[bd_te].dropna().values
+            if len(bd_f) >= 8:
+                fpb, flb, fhb = block_bootstrap_ci(bd_f, _ann_ret, args.bootstrap)
+                f_diag["oos_both_down_ann"] = fpb
+                f_diag["oos_both_down_ann_ci95_lo"] = flb
+                f_diag["oos_both_down_ann_ci95_hi"] = fhb
+        # gross notional + annualized leverage cost (from the last target pos).
+        if f_bt.get("last_w") is not None:
+            gn = float(np.abs(f_bt["last_w"]).sum())
+            f_te_m["gross_notional_last"] = gn
+            f_te_m["lev_cost_ann"] = max(0.0, gn - 1.0) * args.lev_rate if gn > 1 else 0.0
+        else:
+            f_te_m["gross_notional_last"] = float("nan")
+            f_te_m["lev_cost_ann"] = 0.0
+        flavor_data[fname] = {"combo": f_combo, "te_m": f_te_m,
+                              "dsr": f_dsr, "diag": f_diag}
+        print(f"{fname} TRAIN-best: {f_win['combo']} | "
+              f"TEST Sharpe {f_te_m.get('sharpe_net', float('nan')):.3f} | "
+              f"TEST both-down {f_te_m.get('both_down_annualized', float('nan')):+.2%} | "
+              f"upβ {f_te_m.get('upside_beta', float('nan')):.2f} dnβ "
+              f"{f_te_m.get('downside_beta', float('nan')):.2f}")
+
     # Rolling full re-enumerated selection
     oos_port, sel_log = (pd.Series(dtype=float), pd.DataFrame())
     if not args.no_rolling:
@@ -1214,7 +1499,8 @@ def main(argv=None) -> int:
             ret, avail, eq, bd, roll_schemes, args.cap, cost, args.shrink,
             args.trailing, te_s, te_e, max_size, args.min_sleeves,
             erc_cap_mode=args.erc_cap_mode, ref_mode=args.ref_mode,
-            tsmom_lookback=args.tsmom_lookback)
+            tsmom_lookback=args.tsmom_lookback,
+            score_mode=args.score_mode, lev_rate=args.lev_rate)
         sel_log.to_csv(os.path.join(args.out_dir, "rolling_selection_log.csv"), index=False)
         oos_port.to_csv(os.path.join(args.out_dir, "oos_rolling_returns.csv"))
     oos_m = compute_metrics(oos_port.values, oos_port.values, np.zeros(len(oos_port)),
@@ -1272,7 +1558,8 @@ def main(argv=None) -> int:
                  schemes, avail, combos, n_trials, ref_label,
                  int(bd_tr.sum()), int(bd_te.sum()),
                  ls_in, ls_win_combo, ls_te_m, ls_dsr, ls_diag,
-                 rp_combo, rp_sch, rp_te_m)
+                 rp_combo, rp_sch, rp_te_m,
+                 flavor_data=flavor_data)
     print(f"\nReport: {os.path.join(args.out_dir, 'report_eval.md')}")
     print("Done.")
     return 0
@@ -1314,7 +1601,8 @@ def write_report(args, train_res, test_eval, oos_port, oos_m, sel_log, win,
                  dsr_oos_roll, schemes, avail, combos, n_trials, ref_label,
                  bd_tr_count, bd_te_count,
                  ls_in=False, ls_win_combo=None, ls_te_m=None, ls_dsr=None,
-                 ls_diag=None, rp_combo=None, rp_sch=None, rp_te_m=None):
+                 ls_diag=None, rp_combo=None, rp_sch=None, rp_te_m=None,
+                 flavor_data=None):
     L = []; a = L.append
     a("# Risk-Parity Resilience Search — Canonical (Out-of-Sample) Report")
     a("")
@@ -1609,6 +1897,185 @@ def write_report(args, train_res, test_eval, oos_port, oos_m, sel_log, win,
           "collateral in T-bills, adding ~1-2%/yr to the return shown. Sizing is equal-"
           "weight across the combo (neutral); vol-scaling is a flagged refinement.")
         a("")
+
+    # ------------------------------------------------------------------ #
+    # §10 — TrendProtect flavor comparison menu (correlated up, protected down)
+    # ------------------------------------------------------------------ #
+    a("## 10. TrendProtect flavor comparison menu (correlated up, protected down)")
+    a("")
+    a(f"The brief: find an All-Weather flavor with **higher expected return** (target: beat "
+      f"All-Weather's {fp(aw_te_m.get('ann_return_net'))} net OOS) while keeping equity "
+      f"correlation **asymmetric** — correlated on the way up (capture upside), low/negative "
+      f"on the way down (downside protection). Four constructions of one parameterized engine "
+      f"(`_backtest_flavor`), each a long **MinVar** base leg (annual refit, cap-respecting) "
+      f"plus active overlays: a **trend-gate** (gate equity sleeves to cash when their own "
+      f"trailing-{args.tsmom_lookback}m return < 0), a **LS-TSMOM momentum overlay** "
+      f"(dollar-neutral, adds gross → leverage cost), and a **structural short** (permanent "
+      f"sleeve-level net-short, e.g. US Treasuries for a net-short-duration tilt). Leverage "
+      f"cost = **{args.lev_rate*100:.1f}% APR** on gross > 1, charged monthly. Selection uses "
+      f"the **`--score-mode {args.score_mode}`** objective. Full construction + per-flavor "
+      f"pros/cons: [`docs/portfolio-flavors.md`](../docs/portfolio-flavors.md).")
+    a("")
+    if not flavor_data:
+        a("> No TrendProtect flavors ran this invocation. Re-run with")
+        a("> `--schemes EW,InvVol,InvVar,ERC,MinVar,LS-TSMOM,TrendGate,RP-LS-Overlay,"
+          "StructShort,TG-LS-Overlay` to populate this section.")
+        a("")
+    else:
+        # Ranked comparison table: All-Weather, risk-parity winner, LS-TSMOM, the 4 flavors.
+        rows = []
+        def _row(label, m, dsr=None, diag=None, combo=None, gross=1.0):
+            gnl = m.get("gross_notional_last")
+            if gnl is not None and not (isinstance(gnl, float) and math.isnan(gnl)):
+                gstr = f"{gnl:.2f}"
+            else:
+                gstr = f"{gross:.2f}"
+            rows.append({
+                "Portfolio": label,
+                "Combo": (", ".join(combo) if combo else "—"),
+                "Ann ret": fp(m.get("ann_return_net")),
+                "Sharpe": fn(m.get("sharpe_net")),
+                "MaxDD": fp(m.get("max_drawdown")),
+                "Both-down": fp(m.get("both_down_annualized")),
+                "Upβ": fn(m.get("upside_beta")),
+                "Dnβ": fn(m.get("downside_beta")),
+                "Dn-corr": fn(m.get("downside_corr_eq")),
+                "Gross": gstr,
+                "Lev cost/yr": (f"{(m.get('lev_cost_ann') or 0.0)*100:.2f}%"),
+                "DSR": (f"{dsr.get('deflated_sr_ann', float('nan')):.2f}"
+                        if dsr else "—"),
+                "Sharpe CI": ((f"[{diag['oos_sharpe_ci95_lo']:.2f}, "
+                               f"{diag['oos_sharpe_ci95_hi']:.2f}]")
+                              if diag and "oos_sharpe" in diag else "—"),
+            })
+        aw_combo = [s for s in ALL_WEATHER_WEIGHTS if s in avail]
+        _row("All-Weather", aw_te_m, combo=aw_combo, gross=1.0)
+        _row("RP winner", rp_te_m, combo=rp_combo, gross=1.0)
+        _row("LS-TSMOM", ls_te_m if (ls_in and ls_te_m) else {},
+             ls_dsr if ls_in else None, ls_diag if ls_in else None,
+             ls_win_combo if ls_in else None, gross=1.0)
+        for fname in SCHEME_ORDER:
+            if fname not in flavor_data:
+                continue
+            fd = flavor_data[fname]
+            _row(fname, fd["te_m"], fd["dsr"], fd["diag"], fd["combo"], gross=1.0)
+        # Sort by net Sharpe descending (n/a sorts last).
+        def _sk(r):
+            v = r["Sharpe"]
+            return float(v) if v != "n/a" else -9.0
+        rows.sort(key=_sk, reverse=True)
+        a("| Portfolio | Combo | Ann ret | Sharpe | MaxDD | Both-down | Upβ | Dnβ | "
+          "Dn-corr | Gross | Lev cost/yr | DSR | Sharpe CI |")
+        a("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+        for r in rows:
+            a(f"| {r['Portfolio']} | {r['Combo']} | {r['Ann ret']} | **{r['Sharpe']}** | "
+              f"{r['MaxDD']} | {r['Both-down']} | {r['Upβ']} | {r['Dnβ']} | {r['Dn-corr']} | "
+              f"{r['Gross']} | {r['Lev cost/yr']} | {r['DSR']} | {r['Sharpe CI']} |")
+        a("")
+        a("**Reading the asymmetric columns:** Upβ = beta to equity on equity-up months; "
+          "Dnβ = beta on equity-down months; Dn-corr = correlation with equity on equity-down "
+          f"months. A flavor that is *correlated up, protected down* has Upβ ≫ Dnβ and a low "
+          f"(ideally negative) Dn-corr. The {args.tsmom_lookback}m trend-gate *lags* by "
+          f"construction (it turns off ~{args.tsmom_lookback}m into a drawdown and on ~"
+          f"{args.tsmom_lookback}m into a rally), so its asymmetric profile is an empirical "
+          f"question this table answers, not an assumption.")
+        a("")
+        # Per-flavor pros/cons.
+        a("### Per-flavor pros / cons")
+        a("")
+        pc = {
+            "TrendGate": (
+                ["Long-only (gross ≤ 1, no leverage cost).",
+                 "Cuts equity exposure after a sustained drawdown — downside dampening.",
+                 "Keeps bond/gold/diversifier sleeves long (carry)."],
+                ["12m trend-gate LAGS: long into the start of drawdowns, flat into the start "
+                 "of rallies → Dnβ often ≥ Upβ (the lag works against the asymmetric goal).",
+                 "Cannot go net-short, so no positive both-down return.",
+                 "Whipsaw in choppy markets (gate toggles on/off)."]),
+            "RP-LS-Overlay": (
+                ["LS-TSMOM overlay shorts the falling legs → genuinely positive in both-down "
+                 "(the direction that matches the brief).",
+                 "Long MinVar base keeps the return / Sharpe floor.",
+                 "Dollar-neutral overlay is crisis-alpha on top of a diversified long book."],
+                ["Gross 1.30 → leverage cost "
+                 f"{(0.30*args.lev_rate)*100:.2f}%/yr drags the return.",
+                 "Overlay whipsaw in calm markets (the 2010s) drags Sharpe.",
+                 "Dn-corr may stay positive if the long leg dominates the down months."]),
+            "StructShort": (
+                ["Permanent net-short-duration tilt (short US Treasuries) → direct hedge for "
+                 "a 2022-style stocks+bonds rout.",
+                 "Sleeve-level netting keeps gross ≤ 1 (no leverage cost).",
+                 "Structural (not signal-driven) → no whipsaw, no lookback lag."],
+                ["Pays for the hedge in every non-stagflation year (carry drag) — a permanent "
+                 "short is expensive outside 2022.",
+                 "Only applies to combos containing the short sleeve (TRAIN search self-"
+                 "selects those).",
+                 "Sleeve-level short is a net-short-duration *tilt*, not a standalone short "
+                 "ticker (ticker-level shorting that adds gross is a flagged refinement)."]),
+            "TG-LS-Overlay": (
+                ["Combines the trend-gate (downside dampening) with a small LS overlay "
+                 "(crisis alpha) — both levers.",
+                 "Smaller overlay (gross 1.20) → lower leverage cost than RP-LS-Overlay.",
+                 "Targets the asymmetric goal from two angles."],
+                ["Inherits the trend-gate lag AND the overlay whipsaw — both costs.",
+                 "Gross 1.20 → leverage cost "
+                 f"{(0.20*args.lev_rate)*100:.2f}%/yr.",
+                 "Most parameters → most overfitting surface; check the DSR / bootstrap CI."]),
+        }
+        for fname in SCHEME_ORDER:
+            if fname not in flavor_data:
+                continue
+            pros, cons = pc.get(fname, ([], []))
+            fd = flavor_data[fname]
+            m = fd["te_m"]
+            gnl = m.get("gross_notional_last")
+            gstr = (f"{gnl:.2f}" if gnl is not None
+                    and not (isinstance(gnl, float) and math.isnan(gnl)) else "—")
+            dstr = (f"{fd['dsr'].get('deflated_sr_ann', float('nan')):.2f}"
+                    if fd.get("dsr") else "—")
+            cistr = (f"[{fd['diag']['oos_sharpe_ci95_lo']:.2f}, "
+                     f"{fd['diag']['oos_sharpe_ci95_hi']:.2f}]"
+                     if fd.get("diag") and "oos_sharpe" in fd["diag"] else "—")
+            a(f"**{fname}** — combo: {', '.join(fd['combo'])}")
+            a("")
+            a(f"- Net ann ret {fp(m.get('ann_return_net'))} · Sharpe {fn(m.get('sharpe_net'))} · "
+              f"MaxDD {fp(m.get('max_drawdown'))} · both-down {fp(m.get('both_down_annualized'))} · "
+              f"Upβ {fn(m.get('upside_beta'))} / Dnβ {fn(m.get('downside_beta'))} · "
+              f"Dn-corr {fn(m.get('downside_corr_eq'))} · gross {gstr} · "
+              f"lev cost {fp(m.get('lev_cost_ann'))}/yr · DSR {dstr} · Sharpe CI {cistr}")
+            a("- **Pros:** " + " ".join(pros))
+            a("- **Cons:** " + " ".join(cons))
+            a("")
+        # Verdict: which flavors beat All-Weather AND have a low downside-corr, with significance.
+        aw_ret = aw_te_m.get("ann_return_net", float("nan"))
+        aw_sharpe = aw_te_m.get("sharpe_net", float("nan"))
+        beats_aw_ret = []
+        for fname in SCHEME_ORDER:
+            if fname not in flavor_data:
+                continue
+            m = flavor_data[fname]["te_m"]
+            if (m.get("ann_return_net", float("nan")) > aw_ret
+                    and not math.isnan(m.get("ann_return_net", float("nan")))):
+                beats_aw_ret.append(fname)
+        if beats_aw_ret:
+            verdm = (f"Of the four TrendProtect flavors, **{', '.join(beats_aw_ret)}** beat "
+                     f"All-Weather's net OOS return ({fp(aw_ret)}) after the "
+                     f"{args.lev_rate*100:.1f}%/yr leverage cost. Cross-check the Dn-corr / Dnβ "
+                     f"columns for the asymmetric protection and the DSR / bootstrap Sharpe CI "
+                     f"for significance before trusting any single winner — the flavors share "
+                     f"sleeves so DSR is conservative (see §3 effective-N), and a single "
+                     f"TRAIN/TEST split is one regime.")
+        else:
+            verdm = (f"None of the four TrendProtect flavors beat All-Weather's net OOS "
+                     f"return ({fp(aw_ret)}) after the {args.lev_rate*100:.1f}%/yr leverage "
+                     f"cost in this window — the honest, measured answer. The flavors still "
+                     f"shift the asymmetric profile (see Upβ / Dnβ / Dn-corr); whether the "
+                     f"downside protection is worth the return drag is a judgment call the "
+                     f"table surfaces. Check DSR / bootstrap Sharpe CI for significance "
+                     f"(flavors share sleeves → DSR conservative; one split = one regime).")
+        a(f"> **Verdict:** {verdm}")
+        a("")
+
     a("## 8. Caveats (what is and is NOT fixed)")
     a("")
     a("- **Fixed:** Volatility (^VIX) non-tradable sleeve removed by default; 20% per-sleeve")
