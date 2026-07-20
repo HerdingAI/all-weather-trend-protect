@@ -6,12 +6,14 @@ This catalogs every portfolio "flavor" evaluated in `risk_parity_eval.py`: the s
 existing schemes (EW, InvVol, InvVar, ERC, MinVar, LS-TSMOM) plus the **TrendProtect**
 flavors added to answer the brief — *find an All-Weather variant with higher expected
 return while keeping equity correlation asymmetric (correlated on the way up, low/negative
-on the way down)*. The TrendProtect family grew in two rounds: **round 1** added four
+on the way down)*. The TrendProtect family grew in three rounds: **round 1** added four
 cash-gate / overlay / structural-short flavors; **round 2** added six `gate_mode=short`
 flavors (flip equity to net-short on the downside signal — the direct lever for negative
 downside-β) and an `asymmetric2` score that rewards upside capture + return instead of
-fleeing equity. For each flavor: the construction formula, what it holds (gross / net,
-when it shorts), its parameters, the measured out-of-sample metrics, and pros / cons.
+fleeing equity; **round 3** added three **leading-signal** flavors (MA crossover,
+vol-regime, dual-MA) to fix round 2's lagging-momentum blocker. For each flavor: the
+construction formula, what it holds (gross / net, when it shorts), its parameters, the
+measured out-of-sample metrics, and pros / cons.
 
 The measured numbers live in the canonical reports and are reproduced in the
 **comparison menus** at the end:
@@ -24,6 +26,8 @@ The measured numbers live in the canonical reports and are reproduced in the
 - **Asymmetric2-score canonical** (round 2, the seven `gate_mode=short` / EW-base
   flavors): [`output/risk_parity_eval_asym2b/report_eval.md`](../output/risk_parity_eval_asym2b/report_eval.md)
   (regenerable with `.venv/bin/python risk_parity_eval.py --score-mode asymmetric2 ...`).
+- **Asymmetric2-score canonical** (round 3, +the three leading-signal flavors):
+  [`output/risk_parity_eval_asym3/report_eval.md`](../output/risk_parity_eval_asym3/report_eval.md).
 
 See also the peer review: [`docs/peer-review.md`](peer-review.md).
 
@@ -174,7 +178,16 @@ machinery. The engine knobs (each preset is a dict of these):
   high-vol equity to ~5-10% weight; **ew** (equal-weight, like All-Weather's own ~1/n)
   keeps a real equity weight so the gate/short has something to act on (round 2);
 - `lookback` (months, default 12) — per-preset override of the trend signal window
-  (6m = faster, less lag, more whipsaw).
+  (6m = faster, less lag, more whipsaw);
+- `gate_signal` ("tsmom" | "ma" | "vol" | "dma", default "tsmom") — **round 3**. Which
+  signal drives the equity gate. **tsmom** = trailing-`lookback` return (the round-1/2
+  signal, *lagging* — long into drawdown starts, short/flat into rally starts). **ma** =
+  price vs `lookback`-month SMA crossover (a *leading* signal — the MA crosses before the
+  lookback-return flips sign). **dma** = fast 3m SMA vs slow `lookback`-month SMA (a
+  smoother/faster crossover). **vol** = 6m realized vol vs its trailing 60m median (a
+  *regime* filter — vol spikes lead drawdowns; different information set from price). The
+  leading signals need a longer pre-window (vol uses a 60m median of a 6m realized vol →
+  ~66m), so the engine pulls `max(lookback, 72)` months of pre-window history.
 
 Per month, each flavor's position is rebuilt from:
 
@@ -388,6 +401,69 @@ the gap). Three MinVar-base + three EW-base, each with an optional 0.20 LS overl
   the measured window.
 - **Regime wins/loses:** wins in faster drawdowns; whipsaws in chop.
 
+## 3c. The three leading-signal flavors (round 3)
+
+Round 2's measured negative result diagnosed a **structural blocker**, not a
+parameter-tuning problem: trailing 12m/6m TSMOM momentum is a *lagging* signal — long
+into drawdown starts (eats the downside), short/flat into rally starts (misses the
+upside) → Dnβ ≥ Upβ in *every* round-2 flavor. Round 3 swaps the gate signal for three
+**leading** downside signals (the `gate_signal` knob above), all EW-base + `gate_mode=short`
+so equity keeps a real weight AND flips to net-short on the downside signal. The
+hypothesis: a leading signal exits equity *before* the drawdown and re-enters *before* the
+rally, breaking the lag.
+
+### EW-MA-Short
+- **Preset:** `trend_gate=True, gate_mode="short", base_mode="ew", gate_signal="ma",
+  w_overlay=0.0, struct_short=None, lookback=10`.
+- **Construction:** EW-Short driven by a **price-vs-10m-SMA crossover** — long equity when
+  last month's level > the 10m SMA, net-short when below it. An MA crosses *before* a
+  lookback-return flips sign, so the gate turns before the TSMOM gate would.
+- **Holds:** the equal-weight combo, equity net-short when price < 10m SMA. Gross ≤ 1.
+- **When it shorts:** equity sleeves when price is below its 10m SMA.
+- **Parameters:** `gate_signal="ma"`, `lookback=10`, `base_mode="ew"`.
+- **Pros:** the **leading** signal — best downside protection in the entire 10-flavor
+  family (both-down −11.24% vs AW −18.74%, Dn-corr 0.259 vs AW 0.793 — both best-in-class),
+  beating the lagging-TSMOM EW-Short family (−18.97% / 0.563) decisively. The round-2
+  downside blocker is genuinely fixed. Gross ≤ 1 (no leverage cost).
+- **Cons:** trades "miss less downside" for "miss more upside" — Upβ collapsed to 0.014
+  (vs TrendGate 0.265): the MA gate exits before rallies too. So the shape inverts to
+  "protected down, NOT correlated up." MA crossover whipsaws in sideways tape.
+- **Regime wins/loses:** wins in sustained trends (2008, 2022); whipsaws in choppy
+  sideways markets (2015, 2023).
+
+### EW-Vol-Short
+- **Preset:** `trend_gate=True, gate_mode="short", base_mode="ew", gate_signal="vol",
+  w_overlay=0.0, struct_short=None`.
+- **Construction:** EW-Short driven by a **vol-regime filter** — net-short equity when 6m
+  realized vol exceeds its trailing 60m median (a vol spike = risk-off regime), long when
+  vol is calm. A different information set from price (vol, not trend).
+- **Holds:** the equal-weight combo, equity net-short in high-vol regimes. Gross ≤ 1.
+- **When it shorts:** equity sleeves when 6m realized vol > its 60m median.
+- **Parameters:** `gate_signal="vol"`, `vol_window=6`, `vol_median=60`, `base_mode="ew"`.
+- **Pros:** diversifies the signal family (vol, not price); the 60m median is a stable
+  regime reference. Real equity weight (EW base).
+- **Cons:** **disaster in this window** — −1.52% return, −31.69% MaxDD (worst in the
+  family). Vol spikes *coincide* with drawdowns but *persist through rebounds* (vol stayed
+  elevated through the 2020 COVID V-rebound), so the signal shorted the bottom of the
+  rebound. Vol is coincident-to-lagging, not leading, for equity drawdowns. DSR −1.49.
+- **Regime wins/loses:** wins in vol-clustered bear markets (2008); loses badly in
+  V-shaped rebounds where vol stays high (2020).
+
+### EW-DMA-Short
+- **Preset:** `trend_gate=True, gate_mode="short", base_mode="ew", gate_signal="dma",
+  w_overlay=0.0, struct_short=None, lookback=10`.
+- **Construction:** EW-Short driven by a **dual-MA crossover** — fast 3m SMA vs slow 10m
+  SMA. Long equity when the fast MA > slow MA, net-short when below. The slow MA smooths
+  the reference (fewer false flips than the single-MA gate, in theory).
+- **Holds:** the equal-weight combo, equity net-short when 3m SMA < 10m SMA. Gross ≤ 1.
+- **When it shorts:** equity sleeves on the fast/slow MA bearish cross.
+- **Parameters:** `gate_signal="dma"`, `fast=3`, `slow=10`, `base_mode="ew"`.
+- **Pros:** leading signal; the slow-MA reference should smooth chop. Real equity weight.
+- **Cons:** **mediocre** — 2.02% return, −20.92% MaxDD. The fast 3m SMA is too noisy
+  (whipsaws) and the slow 10m MA adds lag vs the single-MA gate — the worst of both. Dn-corr
+  0.495 (worse than EW-MA-Short 0.259). DSR −1.04.
+- **Regime wins/loses:** between EW-MA-Short and EW-Short on every axis; no clear win.
+
 ---
 
 ## 4. Reproducing the comparison
@@ -407,6 +483,12 @@ the gap). Three MinVar-base + three EW-base, each with an optional 0.20 LS overl
   --schemes EW,InvVol,InvVar,ERC,MinVar,LS-TSMOM,TrendGate,TG-Short,TG-Short-LS,TG-Short-6m,EW-Short,EW-Short-LS,EW-Short-6m \
   --rolling-schemes EW,MinVar,LS-TSMOM --bootstrap 2000 --out-dir output/risk_parity_eval_asym2b
 # → output/risk_parity_eval_asym2b/report_eval.md (§10 = the round-2 menu)
+
+# Asymmetric2-score canonical (round 3, +three leading-signal flavors):
+.venv/bin/python risk_parity_eval.py --score-mode asymmetric2 \
+  --schemes EW,InvVol,InvVar,ERC,MinVar,LS-TSMOM,TrendGate,TG-Short,TG-Short-LS,TG-Short-6m,EW-Short,EW-Short-LS,EW-Short-6m,EW-MA-Short,EW-Vol-Short,EW-DMA-Short \
+  --rolling-schemes EW,MinVar,LS-TSMOM --bootstrap 2000 --out-dir output/risk_parity_eval_asym3
+# → output/risk_parity_eval_asym3/report_eval.md (§10 = the round-3 menu)
 
 # Regression guard (default score, COV-only — existing numbers unchanged):
 .venv/bin/python risk_parity_eval.py --ref-mode sleeves --schemes EW,InvVol,InvVar,ERC,MinVar --no-rolling
@@ -521,20 +603,33 @@ Sorted by net Sharpe.
 > Dnβ slightly exceeds Upβ (the 12m-lag works against the asymmetric shape). This
 > round-1 finding motivated the round-2 `gate_mode=short` / EW-base / `asymmetric2`
 > constructions in §3b and the §5 menu above.
-turnover cost **and** the 5.8% APR leverage cost (where gross > 1). Generated as **§10**
-of the asymmetric canonical report:
-[`output/risk_parity_eval_asym/report_eval.md`](../output/risk_parity_eval_asym/report_eval.md).
-Sorted by net Sharpe.
+---
+
+## 5b. Comparison menu — round 3 (measured, out-of-sample)
+
+Ranked table — all ten TrendProtect flavors (the round-2 `gate_mode=short` / EW-base
+family **plus** the three round-3 leading-signal flavors) vs All-Weather and the
+risk-parity (MinVar) winner — over the **TEST 2018-01 → 2026-07** window, net of 10 bps/side
+turnover cost **and** the 5.8% APR leverage cost (where gross > 1). Generated as **§10** of
+the round-3 asymmetric2 canonical report:
+[`output/risk_parity_eval_asym3/report_eval.md`](../output/risk_parity_eval_asym3/report_eval.md).
+Sorted by net annualized return.
 
 | Portfolio | Ann ret | Sharpe | MaxDD | Both-down | Upβ | Dnβ | Dn-corr | Gross | Lev cost/yr | DSR | Sharpe CI |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| **TrendGate** | 4.39% | **1.385** | −4.20% | −4.50% | 0.044 | 0.161 | 0.491 | 1.00 | 0.00% | 0.07 | [0.70, 2.27] |
-| **RP winner (MinVar)** | 5.46% | **1.294** | −5.25% | −7.44% | 0.081 | 0.194 | 0.475 | 1.00 | 0.00% | — | — |
-| **TG-LS-Overlay** | 4.26% | **1.264** | −3.65% | −4.48% | 0.041 | 0.133 | 0.376 | 1.20 | 1.16% | −0.05 | [0.67, 2.06] |
-| **All-Weather** | **7.37%** | **1.055** | −12.31% | −18.74% | 0.327 | 0.475 | 0.793 | 1.00 | 0.00% | — | — |
-| **StructShort** | 5.65% | **0.794** | −12.31% | −18.90% | 0.308 | 0.479 | 0.723 | 1.00 | 0.00% | −0.52 | [0.18, 1.69] |
-| **RP-LS-Overlay** | 4.31% | **0.539** | −13.31% | −30.07% | 0.369 | 0.502 | 0.749 | 1.30 | 1.74% | −0.77 | [−0.01, 1.24] |
-| **LS-TSMOM** | 0.83% | **0.094** | −24.97% | −13.30% | −0.232 | 0.352 | 0.379 | 1.00 | 0.00% | −1.22 | [−0.56, 1.02] |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| **RP winner (MinVar)** | **9.29%** | 0.921 | −15.65% | −30.50% | 0.432 | 0.585 | 0.747 | 1.00 | 0.00% | — | — |
+| **All-Weather (bar)** | 7.37% | **1.055** | −12.31% | −18.74% | 0.327 | 0.475 | 0.793 | 1.00 | 0.00% | — | — |
+| **TrendGate** | 5.95% | 0.640 | −15.78% | −31.85% | 0.265 | 0.489 | 0.631 | 1.00 | 0.00% | −0.67 | [−0.01, 1.48] |
+| **TG-Short-6m** | 5.09% | 0.754 | −12.35% | −15.27% | 0.086 | 0.340 | 0.474 | 1.00 | 0.00% | −0.56 | [0.06, 1.72] |
+| **TG-Short-LS** | 4.13% | 0.448 | −20.50% | −23.99% | 0.056 | 0.294 | 0.347 | 1.20 | 1.16% | −0.86 | [−0.25, 1.29] |
+| **EW-MA-Short** *(new)* | 4.08% | 0.687 | −12.46% | **−11.24%** | 0.014 | 0.125 | **0.259** | 1.00 | 0.00% | −0.62 | [−0.02, 1.52] |
+| **TG-Short** | 3.27% | 0.622 | −10.29% | −13.17% | 0.134 | 0.201 | 0.366 | 1.00 | 0.00% | −0.69 | [0.01, 1.46] |
+| **EW-Short-6m** | 3.30% | 0.414 | −20.58% | −20.18% | 0.091 | 0.460 | 0.542 | 1.00 | 0.00% | −0.90 | [−0.24, 1.43] |
+| **EW-DMA-Short** *(new)* | 2.02% | 0.273 | −20.92% | −15.83% | 0.035 | 0.396 | 0.495 | 1.00 | 0.00% | −1.04 | [−0.38, 1.26] |
+| **EW-Short** | 1.01% | 0.176 | −13.63% | −19.46% | 0.005 | 0.436 | 0.629 | 1.00 | 0.00% | −1.13 | [−0.38, 1.08] |
+| **LS-TSMOM** | 1.87% | 0.159 | −34.71% | −17.12% | −0.315 | 0.462 | 0.392 | 1.00 | 0.00% | −1.15 | [−0.64, 1.11] |
+| **EW-Short-LS** | 0.37% | 0.057 | −15.46% | −21.28% | −0.018 | 0.472 | 0.582 | 1.20 | 1.16% | −1.25 | [−0.46, 0.91] |
+| **EW-Vol-Short** *(new)* | −1.52% | −0.182 | −31.69% | −13.96% | −0.006 | 0.275 | 0.277 | 1.00 | 0.00% | −1.49 | [−0.75, 0.49] |
 
 Columns: Ann ret = net annualized return (after turnover + leverage cost); Sharpe =
 net annualized; MaxDD = worst peak-to-trough; Both-down = annualized return in the 24
@@ -543,5 +638,58 @@ equity-up months; Dnβ = β on equity-down months; Dn-corr = correlation with eq
 equity-down months; Gross = gross notional (Σ|pos|); Lev cost/yr = leverage drag
 ((gross−1)·5.8%); DSR = Deflated Sharpe (negative = edge **not** significant after
 multiple-comparison adjustment); Sharpe CI = block-bootstrap 95% interval.
+
+> **Verdict (measured, honest — round 3).** The leading-signal hypothesis is
+> **partially confirmed — and it isolates the fundamental tension.**
+>
+> 1. **The round-2 downside blocker IS fixed — by EW-MA-Short.** The MA crossover (a
+>    *leading* signal) achieves the **best downside protection in the entire 10-flavor
+>    family**: both-down **−11.24%** (vs AW −18.74%, and vs the lagging-TSMOM EW-Short
+>    family −18.97% to −20.18%) and Dn-corr **0.259** (vs AW 0.793, vs EW-Short 0.629 —
+>    the lowest of any flavor, beating the round-2 TG-Short-LS 0.347). The MA gate
+>    genuinely exits equity *before* the drawdown. This is real, measured progress on the
+>    "protected down" half of the brief, and it confirms the round-2 diagnosis (the blocker
+>    was the lagging signal, not the construction).
+> 2. **BUT it trades "miss less downside" for "miss more upside."** Upβ collapsed to
+>    **0.014** (vs TrendGate 0.265, AW 0.327) — the MA gate exits before rallies too (false
+>    positives). So the asymmetric shape **inverts**: round 2 was "correlated up but NOT
+>    protected down"; round 3's EW-MA-Short is "**protected down but NOT correlated up**."
+>    Return 4.08% < AW 7.37%. The other two leading signals are worse: **EW-Vol-Short**
+>    whipsawed to **−1.52%** / MaxDD −31.69% (vol stays elevated through the 2020 COVID
+>    V-rebound → the signal shorts the bottom); **EW-DMA-Short** was mediocre (2.02%).
+> 3. **Still no flavor beats 7.37% *with* the asymmetric property.** Across all three
+>    rounds (16 flavors), **Dnβ ≥ Upβ in every single one** — no construction achieves
+>    "correlated up, protected down." The RP winner (9.29%) beats on return but with the
+>    *most* downside correlation (Dnβ 0.585 > Upβ 0.432). Every flavor's DSR is negative.
+>
+> **The fundamental tension (the real round-3 finding):** "correlated up, protected down"
+> requires an **asymmetric signal** — confident/trigger-happy on the downside (exits
+> equity) but relaxed on the upside (stays long through chop). A **symmetric** price
+> filter — MA, TSMOM, dual-MA, vol-regime — is equally trigger-happy in both directions:
+> any signal that exits before a drawdown also exits before *some* rallies. So a symmetric
+> gate can optimize *either* the downside half (EW-MA-Short: great Dn-corr, no upside) or
+> the upside half (TrendGate/MinVar: decent Upβ, no downside protection), but not both.
+> Breaking this needs a **directionally-asymmetric** gate for round 4 — e.g. a fast
+> downside-only trigger (exit on a sharp drop / vol spike) paired with a slow-or-no upside
+> trigger (stay long through chop), or a defined-downside insurance overlay (put spreads /
+> trend-downside-stop) that does not cap the upside. Trust the DSR / bootstrap CI: every
+> flavor's DSR is negative, the flavors share sleeves (effective N ≪ nominal N), and
+> this is one TRAIN/TEST split = one regime.
+
+### Top picks (round 3 — the menu updated)
+
+- **Best downside protection of all 16 flavors (the "protected down" champion):**
+  **EW-MA-Short** — both-down −11.24%, Dn-corr 0.259, MaxDD −12.46%, gross 1.00 (no
+  leverage cost), Sharpe 0.687. The leading MA signal fixes the round-2 lag. The cost is
+  upside: Upβ 0.014, return 4.08% (< AW). DSR −0.62.
+- **Best return (beats AW, but no asymmetry):** **RP winner (MinVar)** — 9.29% / Sharpe
+  0.921, but Dnβ 0.585 > Upβ 0.432, Dn-corr 0.747, both-down −30.50%. Unchanged from
+  round 2 (long-only risk parity).
+- **Best return WITH meaningful downside protection:** **TrendGate** — 5.95% / Sharpe
+  0.640, Dn-corr 0.631, but ~1.4%/yr below AW and Dnβ 0.489 > Upβ 0.265. Unchanged.
+- **Best Sharpe of the short family:** **TG-Short-6m** — Sharpe 0.754, MaxDD −12.35%,
+  5.09% net, gross 1.00, but Dnβ 0.340 > Upβ 0.086. Unchanged.
+- **Avoid:** **EW-Vol-Short** (−1.52%, −31.69% MaxDD — vol-regime shorts the 2020 rebound)
+  and **EW-DMA-Short** (2.02%, no edge over EW-MA-Short).
 
 *Research / illustration only. Not investment advice.*

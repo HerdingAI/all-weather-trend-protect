@@ -137,6 +137,67 @@ equity-below-10m-MA) that exits equity *before* the drawdown and re-enters *befo
 rally — not more TSMOM lookback tuning (that is overfitting). This is the untested lever
 for round 3.
 
+## TrendProtect round 3 — leading-signal gate family (2026-07-20)
+Round 2's blocker was diagnosed as a *lagging* signal, not a bad construction. Round 3
+(commit `82823b9`) swaps the equity-gate signal for three **leading** downside signals via
+a new `gate_signal` knob on `_backtest_flavor` (`"tsmom"`|`"ma"`|`"vol"`|`"dma"`). All
+three new presets are EW-base + `gate_mode=short` so equity keeps a real weight AND flips
+to net-short on the downside signal:
+
+- **EW-MA-Short** (`gate_signal="ma"`, lookback 10) — price vs 10m SMA crossover.
+- **EW-Vol-Short** (`gate_signal="vol"`, 6m realized vol vs its 60m median) — a regime filter.
+- **EW-DMA-Short** (`gate_signal="dma"`, fast 3m vs slow 10m SMA) — a smoother crossover.
+
+New `_gate_signal()` helper computes the per-sleeve +/-1/0 gate direction; the existing
+`tsmom` gate path is kept **byte-identical** (the gate block branches on `gate_signal`,
+defaulting to the inline `mom`-based path), so round-1/2 presets are unchanged. The
+leading-signal family needs a longer pre-window (vol uses a 60m median of a 6m realized
+vol → ~66m), so the engine pulls `max(lookback, 72)` months of pre-window history.
+
+**Regression guard (default canonical, 6 base schemes, external ref):** §4 byte-identical
+to the anchor (MinVar 1.518/−11.42%/−5.61%, AW 7.37%/1.055/−18.74%) — round-3 edits are
+opt-in.
+
+**Canonical run:** `output/risk_parity_eval_asym3/report_eval.md` (regenerable:
+`.venv/bin/python risk_parity_eval.py --score-mode asymmetric2 --schemes
+EW,InvVol,InvVar,ERC,MinVar,LS-TSMOM,TrendGate,TG-Short,TG-Short-LS,TG-Short-6m,EW-Short,
+EW-Short-LS,EW-Short-6m,EW-MA-Short,EW-Vol-Short,EW-DMA-Short --rolling-schemes
+EW,MinVar,LS-TSMOM --bootstrap 2000 --out-dir output/risk_parity_eval_asym3`). 45072 TRAIN
+trials, 16 schemes.
+
+**Measured verdict (round 3, honest) — the leading-signal hypothesis is PARTIALLY
+confirmed, and it isolates the fundamental tension:**
+1. **The round-2 downside blocker IS fixed — by EW-MA-Short.** MA crossover achieves the
+   **best downside protection in the entire 10-flavor family**: both-down **−11.24%** (vs
+   AW −18.74%, vs lagging-TSMOM EW-Short family −18.97% to −20.18%) and Dn-corr **0.259**
+   (vs AW 0.793 — the lowest of any flavor, beating round-2 TG-Short-LS 0.347). The MA gate
+   exits equity *before* the drawdown. Real, measured progress on "protected down"; confirms
+   the round-2 diagnosis.
+2. **BUT it trades "miss less downside" for "miss more upside."** Upβ collapsed to **0.014**
+   (vs TrendGate 0.265, AW 0.327) — the MA gate exits before rallies too. The shape
+   **inverts**: round 2 = "correlated up but NOT protected down"; round 3's EW-MA-Short =
+   "protected down but NOT correlated up." Return 4.08% < AW 7.37%. The other two leading
+   signals are worse: **EW-Vol-Short** whipsawed to **−1.52%** / MaxDD −31.69% (vol stays
+   elevated through the 2020 COVID V-rebound → shorts the bottom); **EW-DMA-Short** was
+   mediocre (2.02%).
+3. **Still no flavor beats 7.37% *with* the asymmetric property.** Across all three rounds
+   (16 flavors), **Dnβ ≥ Upβ in every single one.** RP winner (9.29%) beats on return but
+   with the *most* downside correlation. Every flavor's DSR is negative.
+
+**Fundamental tension (the real round-3 finding):** "correlated up, protected down" needs
+an **asymmetric signal** — trigger-happy on the downside (exits equity) but relaxed on the
+upside (stays long through chop). A **symmetric** price filter (MA / TSMOM / dual-MA /
+vol-regime) is equally trigger-happy in both directions: any signal that exits before a
+drawdown also exits before *some* rallies. So a symmetric gate can optimize *either* the
+downside half (EW-MA-Short) or the upside half (TrendGate/MinVar), not both. **Round 4
+lever:** a directionally-asymmetric gate — a fast downside-only trigger (exit on a sharp
+drop / vol spike) paired with a slow-or-no upside trigger (stay long through chop), or a
+defined-downside insurance overlay (put spreads / trend-downside-stop) that does not cap
+the upside. Not yet implemented.
+
+Docs: `docs/portfolio-flavors.md` updated — §3c (three new flavors + `gate_signal` knob) +
+§5b (round-3 measured menu + verdict + top picks) + round-3 reproduction command.
+
 ## Next steps (open) — risk parity
 - A proper OOS multiple-comparison test (Holm/Bonferroni over effective-N, or DSR on the
   TRAIN max) — currently only disclosed, not implemented.
