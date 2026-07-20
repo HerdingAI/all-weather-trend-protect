@@ -48,7 +48,7 @@ import itertools
 import math
 import os
 import time
-from typing import Callable, Dict, List, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -193,36 +193,81 @@ def project_capped_simplex(v: np.ndarray, cap: float) -> np.ndarray:
     """Euclidean projection of v onto the capped simplex
     {w : w_i >= 0, w_i <= cap, sum w_i = 1}.
 
-    Exact 1-D root find: w_i = clip(v_i - tau, 0, cap) with tau chosen so that
-    sum w_i = 1 (Held-Wolfe-Crowder / capped-simplex projection). f(tau) =
-    sum clip(v-tau,0,cap) is continuous, non-increasing, piecewise-linear, so a
-    bisection on tau converges to the true projection. This is what makes
+    The exact projection has the form ``w_i = clip(v_i - tau, 0, cap)`` for a
+    single threshold ``tau`` with ``sum w_i = 1`` (box + equality constraint ->
+    one Lagrange multiplier). Sort ``v`` descending: the at-cap coords are a
+    prefix (largest v), the at-0 coords are a suffix (smallest v), the free
+    coords are the middle, and ``tau = (cap*p + sum(middle) - 1) / m``. We search
+    the O(n^2) (prefix, suffix) partitions for the consistent one. Cost is
+    O(n^3) but n <= ~8 sleeves, so this is ~hundreds of ops with **no
+    per-gradient-step Python loop** (the old bisection did 40-60 np.clip calls
+    per projection, which dominated ERC/MinVar runtime). This is what makes
     MinVar/ERC box-constrained: the cap is enforced *inside* the optimizer
     (projected gradient), not clipped on afterwards.
 
-    Infeasible (n*cap < 1) -> equal weight (the only feasible point when the cap
-    binds on every coordinate is uniform at cap; if even that is infeasible,
-    return uniform so the caller still gets a valid long-only weight)."""
+    Infeasible (n*cap < 1) -> the cap cannot be satisfied, so drop it and
+    project onto the plain simplex (sum=1, w>=0); the caller sees the cap
+    unenforced because it is infeasible for this combo size. This matches the
+    legacy post-hoc path's behavior for thin combos and is the least-violating
+    feasible point."""
     v = np.asarray(v, dtype=float)
     n = v.size
     if cap <= 0 or cap >= 1.0:
         return project_simplex(v)
     if n * cap < 1.0 - 1e-12:
-        return np.ones(n) / n
-    lo = float(v.min() - cap - 1.0)     # f(lo) = n*cap >= 1
-    hi = float(v.max() + 1.0)           # f(hi) = 0  <= 1
-    for _ in range(100):
-        mid = 0.5 * (lo + hi)
-        s = float(np.clip(v - mid, 0.0, cap).sum())
-        if abs(s - 1.0) < 1e-12:
-            lo = hi = mid
-            break
-        if s > 1.0:                     # need larger tau to shrink the sum
-            lo = mid
-        else:
-            hi = mid
-    w = np.clip(v - 0.5 * (lo + hi), 0.0, cap)
-    return w / w.sum()
+        return project_simplex(v)
+    # The projection w_i = clip(v_i - tau, 0, cap) is invariant to an additive
+    # shift (v -> v - c, tau -> tau - c). When a gradient step leaves huge v
+    # entries (e.g. ERC's inv_n/w blows up as w_i -> 0, producing v ~ 1e10), the
+    # subtraction v_i - tau suffers catastrophic cancellation (both ~1e10, differ
+    # by ~cap, lost to float64 ulp). Shifting by v.max() makes the cap/free coords
+    # ~O(1) so the subtraction is exact; only deep-zero coords stay huge-negative
+    # and those are clipped to 0 (harmless). Result is identical, numerically stable.
+    v = v - float(v.max())
+    order = np.argsort(v)[::-1]              # descending
+    vs = v[order]
+    eps = 1e-12
+    for p in range(0, n + 1):                 # p coords at cap (prefix)
+        for q in range(0, n - p + 1):         # q coords at 0 (suffix)
+            m = n - p - q                      # free (middle)
+            if m == 0:
+                if abs(cap * p - 1.0) < 1e-9:
+                    w = np.zeros(n)
+                    w[order[:p]] = cap
+                    return w
+                continue
+            mid = vs[p:p + m]
+            tau = (cap * p + float(mid.sum()) - 1.0) / m
+            # consistency: prefix at cap -> vs[p-1] - tau >= cap; vs[p] - tau <= cap
+            if p > 0 and vs[p - 1] - tau < cap - eps:
+                continue
+            if p < n and vs[p] - tau > cap + eps:
+                continue
+            # free coords strictly inside (0, cap): vs[p+m-1] - tau > 0; vs[p] - tau < cap (checked)
+            if mid[-1] - tau <= eps:
+                continue
+            # suffix at 0 -> vs[p+m] - tau <= 0; vs[p+m-1] - tau >= 0 (checked via mid[-1])
+            if q > 0 and vs[p + m] - tau > eps:
+                continue
+            w = np.empty(n)
+            w[order[:p]] = cap
+            w[order[p:p + m]] = mid - tau
+            w[order[p + m:]] = 0.0
+            w = np.clip(w, 0.0, cap)
+            # Force exact sum=1 without disturbing the cap. The float residual
+            # (~1e-7 from rounding in ``mid - tau``) is distributed onto the
+            # interior coords (strictly inside (0, cap)); at-cap and at-zero
+            # coords are left untouched so the cap stays exact. If there are no
+            # interior coords the partition is all-cap/all-zero (handled by the
+            # m==0 branch above, which is exact), so residual is ~0 anyway.
+            resid = 1.0 - float(w.sum())
+            interior = (w > 1e-9) & (w < cap - 1e-9)
+            if abs(resid) > 0.0 and interior.any():
+                share = w[interior] / float(w[interior].sum())
+                w[interior] = np.clip(w[interior] + resid * share, 0.0, cap)
+            return w
+    # Fallback (numerical edge): equal weight is always feasible here.
+    return np.ones(n) / n
 
 
 def _lmax(cov: np.ndarray, iters: int = 40) -> float:
@@ -263,12 +308,15 @@ def s_erc(cov, vol, cap: float = 0.0, erc_cap_mode: str = "capped", **kw):
         return s_erc_capped(cov, vol, cap=cap)
     return erc_weights(cov)
 
-def s_erc_capped(cov, vol, cap: float, n_iter: int = 4000,
-                 tol: float = 1e-11) -> np.ndarray:
+def s_erc_capped(cov, vol, cap: float, n_iter: int = 1200,
+                 tol: float = 1e-9) -> np.ndarray:
     """Projected gradient on 0.5 w'Sw - (1/n) sum ln(w_i), projected onto the
     capped simplex at each step. Approximate capped-ERC (the projection keeps
     the cap feasible but the log-barrier KKT is only exactly satisfied when no
-    upper bound binds). Used by s_erc when erc_cap_mode='capped'."""
+    upper bound binds). Used by s_erc when erc_cap_mode='capped'. n_iter/tol
+    tuned for speed: ERC-capped is the *approximate* scheme (MinVar-under-cap is
+    exact and is the empirical winner), so 1200 iters with a 1e-9 early stop is
+    more than enough for n<=8 with the inverse-vol warm start."""
     n = cov.shape[0]
     if n * cap < 1.0 - 1e-12:
         return np.ones(n) / n
@@ -284,10 +332,15 @@ def s_erc_capped(cov, vol, cap: float, n_iter: int = 4000,
             w = w_new
             break
         w = w_new
-    return w / w.sum()
+    # project_capped_simplex already enforces sum=1 (residual-corrected) and
+    # max<=cap exactly, so a final w/w.sum() is unnecessary AND harmful: when the
+    # projection's sum is slightly under 1, dividing by it scales the at-cap
+    # coord above the cap (the very property the "ERC/MinVar under cap" label
+    # claims). Return the projected weights directly.
+    return w
 
 def s_minvar(cov, vol, cap: float = 0.0, erc_cap_mode: str = "capped",
-             n_iter: int = 800, tol: float = 1e-11) -> np.ndarray:
+             n_iter: int = 800, tol: float = 1e-9) -> np.ndarray:
     """Minimum-variance via projected gradient. With a cap in (0,1) the
     projection is onto the *capped* simplex, so this is a true box-constrained
     QP (the empirical winner) — the cap is enforced inside the solver, not
@@ -308,13 +361,26 @@ def s_minvar(cov, vol, cap: float = 0.0, erc_cap_mode: str = "capped",
             w = w_new
             break
         w = w_new
-    return w / w.sum()
+    # See s_erc_capped: projection already enforces sum=1 & max<=cap exactly,
+    # so no final renormalization (which would break the cap when sum<1).
+    return w
+
+def s_ls_tsmom(cov, vol, cap: float = 0.0, erc_cap_mode: str = "capped", **kw):
+    """Marker/base for the LS-TSMOM scheme. The actual long/short managed-
+    futures logic is monthly-signal and lives in _backtest_ls_tsmom (dispatched
+    from backtest()); this just returns the equal-weight base so SCHEMES has a
+    callable for combo×scheme enumeration and the rolling cov-solve fallback."""
+    n = cov.shape[0]; return np.ones(n) / n
+
 
 SCHEMES: Dict[str, Callable] = {
     "EW": s_ew, "InvVol": s_invvol, "InvVar": s_invvar,
-    "ERC": s_erc, "MinVar": s_minvar,
+    "ERC": s_erc, "MinVar": s_minvar, "LS-TSMOM": s_ls_tsmom,
 }
-SCHEME_ORDER = ["EW", "InvVol", "InvVar", "ERC", "MinVar"]
+SCHEME_ORDER = ["EW", "InvVol", "InvVar", "ERC", "MinVar", "LS-TSMOM"]
+# Schemes that solve a covariance-based target weight annually (vs LS-TSMOM,
+# which is a monthly momentum signal with no covariance target).
+COV_SCHEMES = {"EW", "InvVol", "InvVar", "ERC", "MinVar"}
 
 
 def cap_weights(w: np.ndarray, cap: float) -> np.ndarray:
@@ -386,12 +452,80 @@ def precompute_refits(ret_full: pd.DataFrame, sleeves: Sequence[str],
 # Fast combo x scheme backtest (net of cost, with weight tracking)
 # --------------------------------------------------------------------------- #
 
+def _backtest_ls_tsmom(panel: pd.DataFrame, ret_full: pd.DataFrame,
+                       sleeve_idx: List[int], lookback: int,
+                       cost_bps: float) -> Dict[str, np.ndarray]:
+    """Long/short managed-futures (TSMOM) backtest for one combo.
+
+    Monthly signal (does NOT fit the annual-refit-target-weight model in
+    ``backtest``): each month ``t`` take ``mom_i = prod(1 + R[t-L:t, i]) - 1``
+    from strictly trailing data and set ``pos_i = base_w_i * sign(mom_i)``.
+    ``base_w`` is equal weight across the combo's sleeves (neutral sizing,
+    matching all_weather_v2.vintage treatment). $1 gross, 0% T-bill collateral
+    (awv2's conservative assumption; real collateral adds ~1-2%/yr — see report
+    §9). Same 10bps/side turnover+cost machinery as ``backtest`` (turnover on
+    gross position changes, both legs). When ``ret_full`` is supplied the first
+    ``lookback`` months of the window still get a causal momentum signal (via
+    pre-window history); otherwise the first ``lookback`` months are an
+    equal-weight-long warm-up (awv2 convention)."""
+    idx = panel.index
+    sleeves_all = list(panel.columns)
+    names = [sleeves_all[i] for i in sleeve_idx]
+    T = len(idx)
+    n = len(sleeve_idx)
+    base = np.ones(n) / n
+    R = panel.values[:, sleeve_idx]
+    if ret_full is not None and set(names).issubset(ret_full.columns):
+        pre = ret_full.loc[:idx[0]].iloc[:-1].tail(lookback)
+        hist = pd.concat([pre[names], ret_full.loc[idx[0]:idx[-1], names]], axis=0)
+    else:
+        hist = panel[names]
+    H = hist.values
+    Hidx = hist.index
+    gross = np.zeros(T); net = np.zeros(T); turn = np.zeros(T)
+    w_prev = None
+    last_w = None
+    for pos in range(T):
+        loc = Hidx.get_loc(idx[pos])
+        if loc >= lookback:
+            mom = np.prod(1.0 + H[loc - lookback:loc], axis=0) - 1.0
+            posv = base * np.sign(mom)
+        else:
+            posv = base.copy()           # warm-up: equal-weight long
+        if w_prev is None:
+            t = float(np.abs(posv).sum())                 # initial purchase
+        else:
+            t = float(np.abs(posv - w_prev).sum())        # rebalance to new signal
+        turn[pos] = t
+        g = float(posv @ R[pos])
+        gross[pos] = g
+        net[pos] = g - t * cost_bps
+        # Drift the position to end of month, expressed as a fraction of the
+        # NEW portfolio value (1 + g). For long-only this equals w/w.sum() (since
+        # w.sum() = 1 + g there), but for long/short w.sum() = (net $ position) + g
+        # -> ~0 for a near-dollar-neutral book, so dividing by w.sum() explodes the
+        # turnover. Dividing by (1 + g) is the correct economics and is always
+        # positive (gross $1 => |g| <= max|R| < 1).
+        w = posv * (1.0 + R[pos])
+        pv = 1.0 + g
+        w_prev = w / pv if pv > 1e-6 else posv
+        last_w = posv
+    # No covariance target -> diversification ratio is undefined for LS-TSMOM.
+    return {"gross": gross, "net": net, "turnover": turn,
+            "last_w": last_w, "div_ratio": float("nan")}
+
+
 def backtest(panel: pd.DataFrame, precomp: Dict[pd.Timestamp, Tuple[np.ndarray, np.ndarray]],
              sleeve_idx: List[int], scheme: str, cap: float, cost_bps: float,
-             cadence: str = "A", erc_cap_mode: str = "capped") -> Dict[str, np.ndarray]:
+             cadence: str = "A", erc_cap_mode: str = "capped",
+             ret_full: Optional[pd.DataFrame] = None,
+             tsmom_lookback: int = 12) -> Dict[str, np.ndarray]:
     """Backtest one combo (via its sleeve position indices) under one scheme.
     Returns gross, net, turnover monthly arrays + last weights + last cov-based
-    diversification ratio."""
+    diversification ratio. LS-TSMOM is a monthly momentum signal (no annual
+    refit / no covariance target) and dispatches to _backtest_ls_tsmom."""
+    if scheme == "LS-TSMOM":
+        return _backtest_ls_tsmom(panel, ret_full, sleeve_idx, tsmom_lookback, cost_bps)
     idx = panel.index
     R = panel.values
     T = len(idx)
@@ -654,11 +788,13 @@ def fast_search(panel: pd.DataFrame, ret_full: pd.DataFrame, both_down: pd.Serie
                 schemes: Sequence[str], cap: float, cost_bps: float,
                 shrink: str, trailing: int, label: str = "",
                 progress_every: int = 2000,
-                erc_cap_mode: str = "capped") -> pd.DataFrame:
+                erc_cap_mode: str = "capped",
+                tsmom_lookback: int = 12) -> pd.DataFrame:
     sleeves_all = list(panel.columns)
     pos = {s: i for i, s in enumerate(sleeves_all)}
     precomp = precompute_refits(ret_full, sleeves_all, panel.index, trailing, shrink)
     rows = []
+    nets = []  # Fix 4: per-trial TRAIN net-return vectors for the effective-N diag
     t0 = time.time()
     n_total = len(combos) * len(schemes)
     done = 0
@@ -666,7 +802,8 @@ def fast_search(panel: pd.DataFrame, ret_full: pd.DataFrame, both_down: pd.Serie
         idxs = [pos[s] for s in combo]
         for sch in schemes:
             bt = backtest(panel, precomp, idxs, sch, cap, cost_bps,
-                          erc_cap_mode=erc_cap_mode)
+                          erc_cap_mode=erc_cap_mode, ret_full=ret_full,
+                          tsmom_lookback=tsmom_lookback)
             m = compute_metrics(bt["net"], bt["gross"], bt["turnover"], panel.index,
                                 both_down, eq_ref, bd_ref, bt["div_ratio"])
             row = {"combo": ",".join(combo), "scheme": sch, "n_sleeves": len(combo)}
@@ -674,6 +811,7 @@ def fast_search(panel: pd.DataFrame, ret_full: pd.DataFrame, both_down: pd.Serie
                 row.update({f"w_{s}": float(bt["last_w"][i]) for i, s in enumerate(combo)})
             row.update(m)
             rows.append(row)
+            nets.append(np.asarray(bt["net"], dtype=float))
             done += 1
             if done % progress_every == 0 or done == n_total:
                 dt = time.time() - t0
@@ -684,6 +822,25 @@ def fast_search(panel: pd.DataFrame, ret_full: pd.DataFrame, both_down: pd.Serie
         df["resilience_score"] = resilience_score(df)
         df["rank"] = df["resilience_score"].rank(ascending=False, method="min").astype(int)
         df = df.sort_values("rank").reset_index(drop=True)
+        # Fix 4: effective-N diagnostic. DSR uses N = (#combos * #schemes) but
+        # the trials share sleeves -> highly correlated, so the effective
+        # independent-trial count is far smaller than the nominal N. Effective
+        # rank = (sum of eigenvalues) / (max eigenvalue) of the de-meaned
+        # TRAIN trial-return matrix. Use the T×T eigenvalue trick (nonzero
+        # eigenvalues of X Xᵀ equal those of Xᵀ X) so cost is O(T^2 N + T^3),
+        # not O(N^3) -- critical with N ~ 1e4 trials but T ~ 120 months.
+        try:
+            X = np.column_stack(nets)                 # (T, N_trials)
+            Xc = np.nan_to_num(X - X.mean(axis=0, keepdims=True))
+            M = Xc @ Xc.T                              # (T, T)
+            ev = np.clip(np.linalg.eigvalsh(M), 0.0, None)
+            lam_max = float(ev.max())
+            eff_n = float(ev.sum() / lam_max) if lam_max > 0 else float("nan")
+            df.attrs["effective_n"] = eff_n
+            df.attrs["n_trials_nominal"] = float(X.shape[1])
+        except Exception:
+            df.attrs["effective_n"] = float("nan")
+            df.attrs["n_trials_nominal"] = float(len(nets))
     return df
 
 
@@ -723,7 +880,8 @@ def rolling_full_select(ret_full: pd.DataFrame, avail: List[str], eq: List[str],
                         max_size: int, min_size: int,
                         trailing_years: int = 10,
                         erc_cap_mode: str = "capped",
-                        ref_mode: str = "external") -> Tuple[pd.Series, pd.DataFrame]:
+                        ref_mode: str = "external",
+                        tsmom_lookback: int = 12) -> Tuple[pd.Series, pd.DataFrame]:
     idx = ret_full.index
     test_idx = idx[(idx >= test_start) & (idx <= test_end)]
     years = sorted(set(d.year for d in test_idx))
@@ -766,6 +924,24 @@ def rolling_full_select(ret_full: pd.DataFrame, avail: List[str], eq: List[str],
         pos_map = {s: i for i, s in enumerate(panel_trail.columns)}
         cov = cov_full[np.ix_([pos_map[s] for s in combo], [pos_map[s] for s in combo])]
         vol = vol_full[[pos_map[s] for s in combo]]
+        if sch == "LS-TSMOM":
+            # Monthly momentum signal over the hold year (no static weight to
+            # hold). Reuse _backtest_ls_tsmom so rolling LS-TSMOM is on the same
+            # footing as the TRAIN/TEST eval (pre-window history -> causal sig).
+            # panel_hold.columns == combo (order preserved, dropna-guarded above),
+            # so sleeve indices into panel_hold are just range(len(combo)).
+            idxs = list(range(len(combo)))
+            bt = _backtest_ls_tsmom(panel_hold, ret_full, idxs, tsmom_lookback, cost_bps)
+            chunk_ret = pd.Series(bt["net"], index=panel_hold.index)
+            chunks.append(chunk_ret)
+            log.append({"year": y, "combo": ",".join(combo), "scheme": sch,
+                        "sel_score": float(best["resilience_score"]),
+                        "sel_sharpe": float(best["sharpe_net"]),
+                        "sel_both_down_ann": float(best["both_down_annualized"]),
+                        "top_weight": "L/S gross 100%"})
+            print(f"  rolling {y}: {len(combos)} combos x {len(schemes)} sch -> "
+                  f"{combo} / {sch} (score {best['resilience_score']:.1f})", flush=True)
+            continue
         solver_capped = (sch == "MinVar") or (
             sch == "ERC" and erc_cap_mode == "capped" and 0.0 < cap < 1.0)
         try:
@@ -848,8 +1024,19 @@ def main(argv=None) -> int:
                     help="Transaction cost per side in bps. Default 10.")
     ap.add_argument("--top-n", type=int, default=50)
     ap.add_argument("--bootstrap", type=int, default=5000)
-    ap.add_argument("--rolling-schemes", default="ERC,EW,MinVar",
-                    help="Schemes for the rolling full re-enumeration (cost ctrl).")
+    ap.add_argument("--rolling-schemes", default="EW,MinVar,LS-TSMOM",
+                    help="Schemes for the rolling full re-enumeration (cost ctrl). "
+                         "ERC is excluded by default: capped-ERC is an approximate "
+                         "projected-gradient solve (~34 ms each) and the rolling "
+                         "pass re-enumerates ~28k combos per window, so ERC in "
+                         "rolling adds ~2.4 h for a non-winner scheme. MinVar is "
+                         "the rigorous box-constrained solver and the empirical "
+                         "winner; pass --rolling-schemes ERC,EW,MinVar,LS-TSMOM "
+                         "to restore ERC if desired.")
+    ap.add_argument("--tsmom-lookback", type=int, default=12,
+                    help="Trailing-month lookback for the LS-TSMOM (managed-"
+                         "futures) momentum signal. Default 12 (matches "
+                         "all_weather_v2.backtest_ls).")
     ap.add_argument("--no-rolling", action="store_true")
     ap.add_argument("--out-dir", default=OUT_DIR)
     args = ap.parse_args(argv)
@@ -899,7 +1086,8 @@ def main(argv=None) -> int:
     print("\n-- TRAIN search (selection) --")
     train_res = fast_search(panel_tr, ret, bd_tr, eqr_tr, bdr_tr, combos, schemes,
                             args.cap, cost, args.shrink, args.trailing, label="TRAIN",
-                            erc_cap_mode=args.erc_cap_mode)
+                            erc_cap_mode=args.erc_cap_mode,
+                            tsmom_lookback=args.tsmom_lookback)
     train_res.to_csv(os.path.join(args.out_dir, "train_results.csv"), index=False)
     print(f"Wrote train_results.csv ({len(train_res)} rows)")
 
@@ -923,7 +1111,8 @@ def main(argv=None) -> int:
         pre = precompute_refits(ret, list(panel_te.columns), panel_te.index,
                                 args.trailing, args.shrink)
         bt = backtest(panel_te, pre, idxs, r["scheme"], args.cap, cost,
-                      erc_cap_mode=args.erc_cap_mode)
+                      erc_cap_mode=args.erc_cap_mode, ret_full=ret,
+                      tsmom_lookback=args.tsmom_lookback)
         m = compute_metrics(bt["net"], bt["gross"], bt["turnover"], panel_te.index,
                             bd_te, eqr_te, bdr_te, bt["div_ratio"])
         row = {"combo": r["combo"], "scheme": r["scheme"], "train_rank": int(r["rank"]),
@@ -954,9 +1143,68 @@ def main(argv=None) -> int:
     pre_te = precompute_refits(ret, list(panel_te.columns), panel_te.index,
                                args.trailing, args.shrink)
     win_bt = backtest(panel_te, pre_te, win_idxs, win_sch, args.cap, cost,
-                      erc_cap_mode=args.erc_cap_mode)
+                      erc_cap_mode=args.erc_cap_mode, ret_full=ret,
+                      tsmom_lookback=args.tsmom_lookback)
     win_te_m = compute_metrics(win_bt["net"], win_bt["gross"], win_bt["turnover"],
                                panel_te.index, bd_te, eqr_te, bdr_te, win_bt["div_ratio"])
+
+    # Fix 3: LS-TSMOM (managed-futures) on an equal footing with risk parity.
+    # Take the TRAIN-best LS-TSMOM portfolio (rank-1 within the LS-TSMOM family)
+    # and evaluate it OOS on TEST, with its own per-family DSR + bootstrap CIs.
+    # Also keep the best COV-scheme portfolio as the "risk-parity winner" for the
+    # §9 head-to-head, so the comparison is LS-TSMOM vs risk-parity vs All-Weather
+    # even when the overall TRAIN winner is itself LS-TSMOM.
+    ls_te_m: Dict[str, float] = {}
+    ls_dsr: Dict[str, float] = {}
+    ls_diag: Dict[str, float] = {}
+    ls_in = "LS-TSMOM" in schemes
+    ls_win_combo: List[str] = []
+    if ls_in:
+        ls_train = train_res[train_res["scheme"] == "LS-TSMOM"].sort_values("rank")
+        if not ls_train.empty:
+            ls_win = ls_train.iloc[0]
+            ls_win_combo = ls_win["combo"].split(",")
+            ls_idxs = [list(panel_te.columns).index(s) for s in ls_win_combo]
+            ls_bt = backtest(panel_te, pre_te, ls_idxs, "LS-TSMOM", args.cap, cost,
+                             erc_cap_mode=args.erc_cap_mode, ret_full=ret,
+                             tsmom_lookback=args.tsmom_lookback)
+            ls_te_m = compute_metrics(ls_bt["net"], ls_bt["gross"], ls_bt["turnover"],
+                                      panel_te.index, bd_te, eqr_te, bdr_te, ls_bt["div_ratio"])
+            # LS-TSMOM ran once per combo -> trial count = #combos in the family.
+            n_ls_trials = max(len(combos), 2)
+            ls_dsr = deflated_sharpe(ls_bt["net"], n_ls_trials)
+            if len(ls_bt["net"]) >= 24:
+                lp, llo, lhi = block_bootstrap_ci(ls_bt["net"], _ann_sharpe, args.bootstrap)
+                ls_diag["oos_sharpe"] = lp
+                ls_diag["oos_sharpe_ci95_lo"] = llo
+                ls_diag["oos_sharpe_ci95_hi"] = lhi
+                bd_ls = pd.Series(ls_bt["net"], index=panel_te.index)[bd_te].dropna().values
+                if len(bd_ls) >= 8:
+                    lpb, llb, lhb = block_bootstrap_ci(bd_ls, _ann_ret, args.bootstrap)
+                    ls_diag["oos_both_down_ann"] = lpb
+                    ls_diag["oos_both_down_ann_ci95_lo"] = llb
+                    ls_diag["oos_both_down_ann_ci95_hi"] = lhb
+            print(f"LS-TSMOM TRAIN-best: {ls_win['combo']} | "
+                  f"TEST Sharpe {ls_te_m.get('sharpe_net', float('nan')):.3f} | "
+                  f"TEST both-down {ls_te_m.get('both_down_annualized', float('nan')):+.2%}")
+    # Best COV-scheme (risk-parity) portfolio for the §9 head-to-head. If the
+    # overall TRAIN winner is already a COV scheme, reuse it; otherwise solve
+    # the rank-1 COV-scheme portfolio on TEST.
+    rp_te_m: Dict[str, float] = win_te_m
+    rp_combo: List[str] = win_combo
+    rp_sch: str = win_sch
+    if ls_in and win_sch == "LS-TSMOM":
+        rp_train = train_res[train_res["scheme"].isin(COV_SCHEMES)].sort_values("rank")
+        if not rp_train.empty:
+            rp_win = rp_train.iloc[0]
+            rp_combo = rp_win["combo"].split(",")
+            rp_sch = rp_win["scheme"]
+            rp_idxs = [list(panel_te.columns).index(s) for s in rp_combo]
+            rp_bt = backtest(panel_te, pre_te, rp_idxs, rp_sch, args.cap, cost,
+                             erc_cap_mode=args.erc_cap_mode, ret_full=ret,
+                             tsmom_lookback=args.tsmom_lookback)
+            rp_te_m = compute_metrics(rp_bt["net"], rp_bt["gross"], rp_bt["turnover"],
+                                      panel_te.index, bd_te, eqr_te, bdr_te, rp_bt["div_ratio"])
 
     # Rolling full re-enumerated selection
     oos_port, sel_log = (pd.Series(dtype=float), pd.DataFrame())
@@ -965,7 +1213,8 @@ def main(argv=None) -> int:
         oos_port, sel_log = rolling_full_select(
             ret, avail, eq, bd, roll_schemes, args.cap, cost, args.shrink,
             args.trailing, te_s, te_e, max_size, args.min_sleeves,
-            erc_cap_mode=args.erc_cap_mode, ref_mode=args.ref_mode)
+            erc_cap_mode=args.erc_cap_mode, ref_mode=args.ref_mode,
+            tsmom_lookback=args.tsmom_lookback)
         sel_log.to_csv(os.path.join(args.out_dir, "rolling_selection_log.csv"), index=False)
         oos_port.to_csv(os.path.join(args.out_dir, "oos_rolling_returns.csv"))
     oos_m = compute_metrics(oos_port.values, oos_port.values, np.zeros(len(oos_port)),
@@ -977,10 +1226,18 @@ def main(argv=None) -> int:
 
     # Overfit diagnostics
     diag = overfit_diag(train_res, test_eval, win, win_te_m, aw_te_m, dsr)
+    # Fix 4: effective-N diagnostic (DSR's N assumes independent trials; the
+    # trials share sleeves so the effective independent-trial count is far
+    # smaller than the nominal N -- surfacing this is the disclosure).
+    diag["effective_n_trials"] = float(train_res.attrs.get("effective_n", float("nan")))
+    diag["n_trials_nominal"] = float(
+        train_res.attrs.get("n_trials_nominal", float(n_trials)))
     # Fix-1 verification: does the winner's solver output already respect the
     # cap (i.e. is the post-hoc clip a no-op)? last_w is the solver output for
-    # MinVar / ERC-capped (we skip the post-hoc clip there).
-    if win_bt.get("last_w") is not None and 0.0 < args.cap < 1.0:
+    # MinVar / ERC-capped (we skip the post-hoc clip there). Skip for LS-TSMOM,
+    # which has no covariance solver / no per-sleeve cap (it is $1 gross L/S).
+    if (win_bt.get("last_w") is not None and 0.0 < args.cap < 1.0
+            and win_sch in COV_SCHEMES):
         diag["winner_max_weight"] = float(np.max(win_bt["last_w"]))
         diag["winner_cap"] = float(args.cap)
         diag["winner_cap_respected_by_solver"] = float(
@@ -1013,7 +1270,9 @@ def main(argv=None) -> int:
     write_report(args, train_res, test_eval, oos_port, oos_m, sel_log, win, win_combo,
                  win_sch, win_te_m, aw_tr_m, aw_te_m, diag, dsr, dsr_oos_roll,
                  schemes, avail, combos, n_trials, ref_label,
-                 int(bd_tr.sum()), int(bd_te.sum()))
+                 int(bd_tr.sum()), int(bd_te.sum()),
+                 ls_in, ls_win_combo, ls_te_m, ls_dsr, ls_diag,
+                 rp_combo, rp_sch, rp_te_m)
     print(f"\nReport: {os.path.join(args.out_dir, 'report_eval.md')}")
     print("Done.")
     return 0
@@ -1053,7 +1312,9 @@ def overfit_diag(train_res, test_eval, win, win_te_m, aw_te_m, dsr) -> Dict[str,
 def write_report(args, train_res, test_eval, oos_port, oos_m, sel_log, win,
                  win_combo, win_sch, win_te_m, aw_tr_m, aw_te_m, diag, dsr,
                  dsr_oos_roll, schemes, avail, combos, n_trials, ref_label,
-                 bd_tr_count, bd_te_count):
+                 bd_tr_count, bd_te_count,
+                 ls_in=False, ls_win_combo=None, ls_te_m=None, ls_dsr=None,
+                 ls_diag=None, rp_combo=None, rp_sch=None, rp_te_m=None):
     L = []; a = L.append
     a("# Risk-Parity Resilience Search — Canonical (Out-of-Sample) Report")
     a("")
@@ -1074,8 +1335,9 @@ def write_report(args, train_res, test_eval, oos_port, oos_m, sel_log, win,
     a(f"- **Sleeves ({len(avail)}):** {', '.join(avail)}.  Volatility (^VIX) excluded by")
     a("  default (non-tradable; opt in with `--include-volatility` for illustration only).")
     a(f"- **Combos × schemes:** {len(combos)} × {len(schemes)} = **{n_trials} trials** on TRAIN.")
-    a("- **Schemes:** EW, InvVol, InvVar, ERC (risk parity), MinVar — separates composition")
-    a("  from allocation / risk profile.")
+    a(f"- **Schemes:** {', '.join(schemes)} — EW/InvVol/InvVar/ERC/MinVar separate composition")
+    a("  from allocation; **LS-TSMOM** is a long/short managed-futures (trend) overlay that")
+    a("  targets the All-Weather weak spot (both-down / stagflation) — see §9.")
     a(f"- **Constraints:** long-only, no leverage, **per-sleeve cap {args.cap:.0%}**, monthly")
     a(f"  rebalance, **{args.cost_bps} bps/side** transaction costs, **{args.shrink}** covariance")
     a(f"  shrinkage, trailing {args.trailing}m, annual refit.")
@@ -1121,7 +1383,6 @@ def write_report(args, train_res, test_eval, oos_port, oos_m, sel_log, win,
           f"{diag['winner_cap']*100:.0f}% → {resp}.")
         a("")
     a("## 3. Statistical significance (multiple-comparison adjusted)")
-    a("## 3. Statistical significance (multiple-comparison adjusted)")
     a("")
     a(f"- Trials run on TRAIN: **{int(dsr['n_trials'])}**.")
     a(f"- Raw OOS net Sharpe: **{dsr['sr_ann']:.3f}**.")
@@ -1139,6 +1400,25 @@ def write_report(args, train_res, test_eval, oos_port, oos_m, sel_log, win,
         a(f"- Block-bootstrap 95% CI on OOS both-down ann ret: "
           f"[{diag['oos_both_down_ann_ci95_lo']*100:.2f}%, "
           f"{diag['oos_both_down_ann_ci95_hi']*100:.2f}%]")
+    a("")
+    # Fix 4: DSR effective-N + OOS-application caveats.
+    eff_n = diag.get("effective_n_trials", float("nan"))
+    n_nom = diag.get("n_trials_nominal", float("nan"))
+    a("> **DSR caveats (read before interpreting the headline DSR):**")
+    a(f"> - **Effective N ≪ nominal N.** DSR's penalty uses N = {int(n_nom)} "
+      f"independent trials, but the trials share sleeves (any two portfolios "
+      f"holding US Treasuries are correlated), so the *effective* independent-")
+    a(f">   trial count is the **effective rank of the TRAIN trial-return matrix "
+      f"= {eff_n:.1f}** (participation ratio, Σλ/λ_max). The true "
+      f"luck-of-many-trials benchmark is therefore **smaller** than the one used,")
+    a(">   so DSR ≤ 0 here is a **conservative** upper bound on the multiple-"
+      "comparison penalty — the edge may be more significant than DSR suggests, "
+      "not less. (A proper OOS multiple-comparison test — Holm/Bonferroni over "
+      "the effective N, or DSR applied to the TRAIN max — is future work.)")
+    a("> - **DSR is applied to the OOS Sharpe of the TRAIN-selected winner** "
+      "(a non-canonical but accepted variant of Bailey & López de Prado 2014), "
+      "not to the in-sample max Sharpe. Combined with the effective-N point, "
+      "treat the headline DSR as a conservative guardrail, not a precise p-value.")
     a("")
     # dynamic interpretation
     dsr_neg = (diag.get("deflated_sr_ann", 0.0) <= 0.0)
@@ -1210,6 +1490,9 @@ def write_report(args, train_res, test_eval, oos_port, oos_m, sel_log, win,
       f"large negative ⇒ overfit |")
     a(f"| Winner both-down test−train | {diag['winner_both_down_degradation']:+.4f} | "
       f"large negative ⇒ overfit |")
+    a(f"| Effective N (vs nominal {int(diag.get('n_trials_nominal', 0))}) | "
+      f"{diag.get('effective_n_trials', float('nan')):.1f} | "
+      f"DSR penalty is conservative (trials correlated) |")
     a("")
     a("## 7. Rolling FULL re-enumerated selection (strictest OOS test)")
     a("")
@@ -1232,6 +1515,100 @@ def write_report(args, train_res, test_eval, oos_port, oos_m, sel_log, win,
         a(f"| {int(r['year'])} | {r['combo']} | {r['scheme']} | "
           f"{r['sel_score']:.1f} | {r['sel_sharpe']:.2f} | {r['top_weight']} |")
     a("")
+    # ------------------------------------------------------------------ #
+    # §9 — Managed-futures (LS-TSMOM) on an equal footing (Fix 3)
+    # ------------------------------------------------------------------ #
+    a("## 9. Managed-futures (LS-TSMOM) on an equal footing (Fix 3)")
+    a("")
+    a("The long/short managed-futures (time-series-momentum) direction — previously only")
+    a("tested in the separate `all_weather_v2.py` report with no DSR / walk-forward /")
+    a("bootstrap — is now folded into this canonical pipeline. Each month, for each combo")
+    a(f"sleeve, `pos = base_w · sign(trailing-{args.tsmom_lookback}m return)` with "
+      f"**equal-weight base**,")
+    a("**$1 gross, 0% T-bill collateral** (matches awv2's conservative assumption), and the")
+    a("same 10 bps/side turnover+cost machinery. It goes through the same combo×scheme")
+    a("TRAIN selection, TEST eval, and rolling re-enumeration as the risk-parity schemes —")
+    a("so the comparison is measured, not assumed. This is the direct test of the brief:")
+    a("*find an All-Weather flavor that does well where All-Weather is weak (both-down /")
+    a("stagflation)* — long/short trend is positive in 2022 precisely because it **shorts**")
+    a("the falling bonds+equities, which long-only risk parity cannot do.")
+    a("")
+    if not ls_in:
+        a("> LS-TSMOM was **not run** this invocation. Re-run with")
+        a("> `--schemes EW,InvVol,InvVar,ERC,MinVar,LS-TSMOM` to populate this section.")
+        a("")
+    elif not ls_te_m:
+        a("> LS-TSMOM ran but produced no valid TRAIN portfolio on TEST (insufficient history).")
+        a("")
+    else:
+        a(f"- **TRAIN-best LS-TSMOM combo:** {', '.join(ls_win_combo) if ls_win_combo else 'n/a'}")
+        a(f"- **Signal:** `pos = (1/n)·sign(trailing-{args.tsmom_lookback}m)` per sleeve, "
+          f"monthly. Lookback configurable via `--tsmom-lookback`.")
+        a("")
+        a("| Metric | All-Weather (OOS) | Risk-parity winner (OOS) | **LS-TSMOM (OOS)** |")
+        a("|---|---:|---:|---:|")
+        rp_lab = f"{rp_sch} | {', '.join(rp_combo)}" if rp_combo else "n/a"
+        for lab, key, f in [("Ann return (net)","ann_return_net",fp),
+                           ("Ann vol","ann_vol",fp),
+                           ("Net Sharpe","sharpe_net",fn),
+                           ("Max DD","max_drawdown",fp),
+                           ("Both-down ann ret","both_down_annualized",fp),
+                           ("Both-down hit rate","both_down_hit_rate",fp),
+                           ("Corr w/ equity","corr_eq",fn),
+                           ("Crisis avg ret","crisis_avg_ret",fp)]:
+            a(f"| {lab} | {f(aw_te_m.get(key))} | {f(rp_te_m.get(key))} | "
+              f"**{f(ls_te_m.get(key))}** |")
+        a("")
+        a(f"- LS-TSMOM OOS net Sharpe: **{fn(ls_te_m.get('sharpe_net'))}**")
+        a(f"- LS-TSMOM OOS both-down ann ret: **{fp(ls_te_m.get('both_down_annualized'))}**  "
+          f"(hit rate {fp(ls_te_m.get('both_down_hit_rate'))})")
+        if ls_dsr:
+            a(f"- LS-TSMOM Deflated Sharpe (annualized, n_trials = "
+              f"{int(ls_dsr.get('n_trials', 0))}): "
+              f"**{ls_dsr.get('deflated_sr_ann', float('nan')):.3f}**  "
+              f"(P>0 = {ls_dsr.get('dsr_prob', float('nan')):.2f})")
+        if ls_diag and "oos_sharpe" in ls_diag:
+            a(f"- Block-bootstrap 95% CI on LS-TSMOM OOS Sharpe: "
+              f"[{ls_diag['oos_sharpe_ci95_lo']:.3f}, {ls_diag['oos_sharpe_ci95_hi']:.3f}]")
+        if ls_diag and "oos_both_down_ann" in ls_diag:
+            a(f"- Block-bootstrap 95% CI on LS-TSMOM OOS both-down ann ret: "
+              f"[{ls_diag['oos_both_down_ann_ci95_lo']*100:.2f}%, "
+              f"{ls_diag['oos_both_down_ann_ci95_hi']*100:.2f}%]")
+        a("")
+        ls_bd = ls_te_m.get("both_down_annualized", float("nan"))
+        rp_bd = rp_te_m.get("both_down_annualized", float("nan"))
+        aw_bd = aw_te_m.get("both_down_annualized", float("nan"))
+        ls_pos = ls_bd > 0
+        ls_beats_rp = ls_bd > rp_bd
+        ls_beats_aw = ls_bd > aw_bd
+        if ls_pos and ls_beats_aw:
+            verdict9 = ("**LS-TSMOM delivers POSITIVE both-down returns OOS and beats "
+                        "All-Weather** where All-Weather is weakest — the long/short trend "
+                        "overlay achieves what long-only risk parity could not. This is the "
+                        "All-Weather variant the brief asked for. The trade-off (whipsaw in "
+                        "calm markets — check the full-period Sharpe) is the price of crisis "
+                        "alpha.")
+        elif ls_beats_aw and ls_beats_rp:
+            verdict9 = ("LS-TSMOM **reduces** the both-down loss vs both All-Weather and the "
+                        "risk-parity winner (though still negative OOS) — directionally the "
+                        "trend overlay helps in the AW weak spot, but not enough to flip it "
+                        "positive in this window. Check the bootstrap CI before trusting the "
+                        "ranking.")
+        elif ls_beats_aw:
+            verdict9 = ("LS-TSMOM beats All-Weather in the both-down regime but does not beat "
+                        "the risk-parity winner here — the trend overlay helps vs AW but the "
+                        "dampened long-only portfolio is competitive in this window.")
+        else:
+            verdict9 = ("LS-TSMOM does **not** beat All-Weather / risk parity on both-down in "
+                        "this window — the trend signal whipsawed (check the bootstrap CI). "
+                        "The hypothesis is *tested*, not assumed; this run does not support it.")
+        a(f"> **Verdict:** {verdict9}")
+        a("")
+        a("> **Collateral assumption:** LS-TSMOM is modeled at $1 gross with 0% T-bill "
+          "collateral (conservative, matches awv2). A real implementation holds the cash "
+          "collateral in T-bills, adding ~1-2%/yr to the return shown. Sizing is equal-"
+          "weight across the combo (neutral); vol-scaling is a flagged refinement.")
+        a("")
     a("## 8. Caveats (what is and is NOT fixed)")
     a("")
     a("- **Fixed:** Volatility (^VIX) non-tradable sleeve removed by default; 20% per-sleeve")
