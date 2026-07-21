@@ -1,0 +1,10 @@
+year,combo,scheme,sel_score,sel_sharpe,sel_both_down_ann,top_weight
+2018,"US Equity,US REIT,Preferred Stock,US Treasuries,US Corporate Bonds",LS-TSMOM,84.28292509762159,0.5022234407674439,0.1877141499077824,L/S gross 100%
+2019,"International Equity,US Treasuries,US Corporate Bonds,US Municipal Bonds,Gold,Silver,Currency",MinVar,73.81611643592476,1.4669982912423838,-0.0511345144584646,US Treasuries 20.0%
+2020,"Preferred Stock,US Treasuries,US Corporate Bonds,Gold,Silver,Currency",MinVar,80.48988285410009,1.21443807046584,-0.06970956588945126,Preferred Stock 20.0%
+2021,"Preferred Stock,US Treasuries,US Corporate Bonds,US Municipal Bonds,Gold,Currency",EW,79.29830789255709,1.0640834752605093,-0.07644660209951562,Preferred Stock 16.7%
+2022,"Preferred Stock,US Treasuries,US Corporate Bonds,US Municipal Bonds,Gold,Currency",EW,76.56076203999527,1.0747660417042348,-0.07712394796512027,Preferred Stock 16.7%
+2023,"US Equity,International Equity,US Treasuries,US Corporate Bonds,Commodities",LS-TSMOM,84.46515205301148,0.49701590786885236,0.0004361765029087493,L/S gross 100%
+2024,"Preferred Stock,US Treasuries,US Corporate Bonds,US Municipal Bonds,Commodities",LS-TSMOM,79.02970062714473,0.6696347411792509,0.018457420694394867,L/S gross 100%
+2025,"International Equity,US Corporate Bonds,EM Bonds,Gold,Commodities",LS-TSMOM,75.02425748432138,0.2166702050269844,0.02367859597410673,L/S gross 100%
+2026,"International Equity,US Corporate Bonds,EM Bonds,Gold,Commodities",LS-TSMOM,75.06685599337357,0.3112357649547552,0.02504570134504965,L/S gross 100%

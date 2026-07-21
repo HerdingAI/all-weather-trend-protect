@@ -1,0 +1,10 @@
+year,combo,scheme,sel_score,sel_sharpe,sel_both_down_ann,top_weight
+2018,"US Equity,US Treasuries,US Corporate Bonds,US Municipal Bonds,Gold,Silver,Currency",MinVar,75.17364808898354,1.149147589466483,-0.034198412342897035,US Treasuries 20.0%
+2019,"US Equity,US Treasuries,US Corporate Bonds,US Municipal Bonds,Gold,Silver,Currency",MinVar,80.26032422198556,1.7462301450389561,0.00460001057268095,US Treasuries 20.0%
+2020,"US Equity,US Treasuries,US Corporate Bonds,US Municipal Bonds,EM Bonds,Gold,Silver,Currency",MinVar,84.35214767483137,2.0868542697657615,-0.012916048462617992,US Treasuries 20.0%
+2021,"US REIT,Preferred Stock,US Treasuries,US Corporate Bonds,US Municipal Bonds,EM Bonds,Gold,Currency",MinVar,80.45793397231095,1.4073831512295136,-0.04142886511382597,US Treasuries 20.0%
+2022,"Preferred Stock,US Treasuries,US Corporate Bonds,US Municipal Bonds,Gold,Currency",MinVar,78.42178440421253,1.46730112763127,-0.026079654194196195,US Treasuries 20.0%
+2023,"Preferred Stock,US Treasuries,US Corporate Bonds,US Municipal Bonds,Gold,Currency",MinVar,70.17453555792214,1.0170014678907509,-0.04970003503396119,US Treasuries 20.0%
+2024,"Preferred Stock,US Treasuries,US Municipal Bonds,Gold,Silver,Currency",MinVar,71.69550940717076,1.0602421287002175,-0.06752488404528204,US Treasuries 20.0%
+2025,"Preferred Stock,US Treasuries,US Municipal Bonds,Gold,Currency",EW,72.77541119394154,1.1220108150909214,-0.061854979133742855,Preferred Stock 20.0%
+2026,"Preferred Stock,US Treasuries,US Municipal Bonds,Gold,Currency",MinVar,73.74467518636847,1.4124413838018253,-0.06107150777765247,Preferred Stock 20.0%

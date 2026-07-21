@@ -1,0 +1,10 @@
+year,combo,scheme,sel_score,sel_sharpe,sel_both_down_ann,top_weight
+2018,"US Equity,International Equity,Preferred Stock,US Treasuries,Gold,Silver",MinVar,78.09608330375104,0.6569257760110542,-0.3346086977790233,US Equity 20.0%
+2019,"US Equity,US REIT,US Corporate Bonds,Gold,Silver",MinVar,74.40066264347413,0.7119765556153431,-0.33580289752145265,US Equity 20.0%
+2020,"US REIT,US Corporate Bonds,EM Bonds,Gold,Silver",EW,80.59726659566915,0.5853390779580182,-0.28733349065571306,US REIT 20.0%
+2021,"US Equity,US Corporate Bonds,US Municipal Bonds,Gold,Silver",EW,74.15986273813749,0.5159355952991902,-0.29123407459811756,US Equity 20.0%
+2022,"US Equity,US REIT,Preferred Stock,US Corporate Bonds,Gold,Silver",MinVar,70.97089101881434,0.9782580706596723,-0.31449962278837074,US REIT 20.0%
+2023,"US Equity,International Equity,US Treasuries,Gold,Silver,Commodities",MinVar,71.05786297479588,0.4565314932848668,-0.3113192802124357,US Equity 20.0%
+2024,"US Equity,International Equity,US Treasuries,Gold,Silver",MinVar,72.69465152053012,0.5335243713016646,-0.3482519338131711,US Equity 20.0%
+2025,"US Equity,International Equity,US Municipal Bonds,Gold,Silver",EW,75.5233108507869,0.6384939955255386,-0.32812259311677017,US Equity 20.0%
+2026,"US Equity,International Equity,US Municipal Bonds,Gold,Silver",EW,76.76961306354279,0.9983784011006546,-0.3137223803719538,US Equity 20.0%

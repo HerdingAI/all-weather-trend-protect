@@ -1,0 +1,2 @@
+scheme,n,test_sharpe_mean,test_both_down_ann_mean,test_maxdd_mean,test_divratio_mean,test_score_mean,train_rank_mean
+LS-TSMOM,50,0.1208703951050892,-0.09793356143137912,-0.22197207501878352,,51.0,25.5
