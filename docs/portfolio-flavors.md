@@ -75,7 +75,7 @@ See also the peer review: [`docs/peer-review.md`](peer-review.md).
 
 ---
 
-## 0. Bottom line — the honest conclusion across all nine rounds
+## 0. Bottom line — the honest conclusion across all nine rounds (investigation closed)
 
 **The combined goal was not achieved — but each half has now been achieved separately,
 and round 9 added a third way to fail it.** After nine rounds and **47 TrendProtect
@@ -303,6 +303,42 @@ is the sixth structural finding, and the point at which the combined goal is rec
 **not achievable on this universe with these construction primitives**: the two halves
 are achievable separately (round 7 property, rounds 8–9 return via two different
 primitives) but not together.
+
+### Final verdict — the investigation is closed (after round 9)
+
+After nine rounds, 47 TrendProtect flavors, and six structural findings, **the
+investigation is concluded.** The brief's combined goal — *a flavor that beats
+All-Weather's 7.37% / Sharpe 1.055 net OOS AND has Upβ > Dnβ (correlated up, protected
+down), with long-term shorting and leverage both permitted* — is **not achievable on
+this universe with the construction primitives tested.** The two halves have been achieved
+separately, by three different primitives, but never in one flavor:
+
+- **Asymmetry property (Upβ > Dnβ):** achieved **once**, by round 7's leading ex-ante
+  inflation-regime broad gate (EW-Infl-Both 0.436 > 0.316, EW-Infl-BothL 0.522 > 0.422) —
+  byte-identical and stable through rounds 8 and 9. Both have **Sharpe ≈ 0** (net return
+  ≈ 0): the broad gate bleeds carry in every non-crisis reflation month. Use as a
+  *defensive sleeve*, not a return strategy.
+- **Return (beat 7.37%):** achieved by **two** different primitives — round 8's
+  narrow inflation-confirmation gate (EW-InflC-Both6 8.38%) and round 9's scaled gross
+  (EW-Scale-Mom6 8.50%, EW-Scale-MomL 8.05%). All have **Upβ < Dnβ** (the property lost
+  or reversed).
+
+The six findings show the goal fails from **three** directions, one per primitive family:
+(1) *timing a short with a broad gate* (r7) delivers the asymmetry but bleeds return;
+(2) *timing a short with a narrow gate* (r8) restores return but loses the asymmetry —
+**no free lunch in the gate width**; (3) *scaling gross with a scalar* (r9) restores
+return but **reverses** the asymmetry, because every available scalar lags (the same lag
+problem that defeated the gating families on the short leg now defeats scaling on the
+gross leg). The one remaining untried cell — a hysteretic asymmetric price gate on the
+never-flip overlay, shorting both equity and duration — was identified but **not run**:
+it inherits the same gate-width tension on a different axis (overlay size × re-entry
+speed), and after nine rounds of diminishing returns the investigation is closed rather
+than spend a tenth round on a fourth likely-symmetric failure. **Statistical caveat
+(unchanged):** every flavor's DSR is negative; almost all Sharpe CIs span zero (the
+round-8 duration and round-9 scaled-gross families have positive/near-zero lower bounds,
+still not significant after multiple-comparison correction); one TRAIN/TEST split = one
+regime. This is an honest exploration of what the constructions *can* do, not a proven
+edge. **The measured practical picks stand as documented above and in §5a–§5i.**
 
 The rest of this document is the full per-flavor catalog and the per-round measured menus
 (§5a–§5i) from which this bottom line is synthesized.

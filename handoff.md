@@ -722,59 +722,38 @@ asymmetry is set by the scalar's lead/lag, not by scaling) / 3 round-9 rows in t
 table + statistical-honesty updated with the round-9 CIs + the lever paragraph's round-9
 coda.
 
-## INVESTIGATION STATUS — honest conclusion (2026-07-20, after round 9)
-After nine rounds / 47 TrendProtect flavors, **the combined goal was not achieved — but
-each half has now been achieved separately, and round 9 added a third way to fail it.** No
-flavor both beats All-Weather's 7.37% / Sharpe 1.055 net OOS AND has Upβ > Dnβ. **Round 7
-achieved Upβ > Dnβ for the first time** (EW-Infl-Both 0.436>0.316, EW-Infl-BothL 0.522>0.422)
-via a leading ex-ante inflation-regime gate, **round 8 achieved the return half within the
-inflation-gate family for the first time** (EW-InflC-Both6 8.38% > 7.37%; EW-InflC-Dur
-7.30% / Sharpe 0.671, first positive CI lower bound) via a coincident equity-rolling
-confirmation that narrows the broad gate, and **round 9 beat 7.37% on return with a
-different primitive** (EW-Scale-Mom6 8.50%, EW-Scale-MomL 8.05%) by *scaling gross*
-(long-only, no short) — but all five round-9 flavors have **Dnβ > Upβ** (asymmetry
-REVERSED). The two sets are disjoint: the 2 property-meeting flavors (round-7 broad-gate,
-byte-identical in rounds 8 and 9) have Sharpe ≈ 0, and every return-beating flavor has
-Upβ < Dnβ. Six structural findings, one per failure mode: rounds 2-4b shorting equity on a
-downside gate drives Upβ negative (structural, not tunable); round 5 decoupling fixes Upβ
-but an equity-only overlay can't bring Dnβ down; round 6 shorting duration fixes both-down
-but trades Upβ for it (lagging duration short drags Upβ negative) while the fast eq_dd
-trigger keeps Upβ but its threshold rarely fires the bond hedge; **round 7 a leading
-ex-ante macro gate achieves Upβ > Dnβ (first time) — but the broad regime gate bleeds return
-in non-crisis reflation months, so the property-meeting flavors have ~0 return, and the
-duration-only flavors that keep the return fail the property with terrible both-down** (the
-long-tilt held in every disinflation month compounded the 2022-23 bond bear); **round 8
-narrowing the gate with an equity-rolling confirmation restores the return (first infl-gate
-flavor to beat 7.37%) but breaks the asymmetry — all 5 round-8 flavors have Upβ < Dnβ,
-because the narrow gate covers too few equity-down months to keep Dnβ capped. The broadness
-that delivers the asymmetry is the same broadness that bleeds the return — no free lunch in
-the gate width.** **Round 9 scaling gross with a lagging scalar REVERSES the asymmetry — all
-5 round-9 flavors have Dnβ > Upβ, because every available scalar (momentum, vol, inflation)
-lags: s_t is high at the start of drawdowns (leveraged into the drop) and low at the start
-of rallies (de-risked into the rebound). Scaling's asymmetry is set by the scalar's
-lead/lag, not by the scaling itself, and no contemporaneous scalar is available ex-ante.**
-The combined goal is reconfirmed **not achievable on this universe with these construction
-primitives**: the two halves are achievable separately (round 7 property, rounds 8-9 return
-via two different primitives) but not together — a hedge broad enough to cap Dnβ below Upβ
-necessarily shorts non-crisis up-months and bleeds return; a hedge narrow enough to preserve
-return covers too few down-months; and scaling gross with a lagging scalar reverses the
-asymmetry. A gate that is itself asymmetric (broad in down-months, absent in up-months) is
-the round-4b hysteretic price-gate family, which drove Upβ negative by flipping the base —
-the never-flip additive-overlay construction (rounds 5-8) avoids that Upβ drag but cannot
-be both broad and narrow at once, and the never-flip scaled-gross construction (round 9)
-avoids flipping but inherits the scalar's lag.
+## INVESTIGATION STATUS — honest conclusion (2026-07-21, after round 9 — CLOSED)
+
+**The investigation is concluded.** After nine rounds / 47 TrendProtect flavors / six
+structural findings, the brief's combined goal — *beat All-Weather's 7.37% / Sharpe 1.055
+net OOS AND have Upβ > Dnβ (correlated up, protected down), with long-term shorting and
+leverage both permitted* — is **not achievable on this universe with the construction
+primitives tested.** The two halves were achieved separately by three different
+primitives but never in one flavor: the asymmetry property once (round 7 leading
+ex-ante inflation broad gate, EW-Infl-Both/BothL, Sharpe ≈ 0); the return by two
+primitives (round 8 narrow confirmation gate EW-InflC-Both6 8.38%; round 9 scaled gross
+EW-Scale-Mom6 8.50% / EW-Scale-MomL 8.05%) — all with Upβ < Dnβ. The goal fails from three
+directions: (1) broad gate → asymmetry but ~0 return; (2) narrow gate → return but no
+asymmetry (no free lunch in gate width); (3) scaled gross → return but asymmetry
+REVERSED (every scalar lags). The one remaining untried cell — hysteretic asymmetric
+price gate on the never-flip overlay, shorting both equity and duration — was identified
+but **not run**: it inherits the same gate-width tension on a different axis, and after
+nine rounds of diminishing returns the investigation is closed rather than spend a
+tenth round on a fourth likely-symmetric failure. **Statistical caveat:** every DSR
+negative; almost all CIs span zero (round-8 duration and round-9 scaled-gross families
+have positive/near-zero lower bounds, still not significant after multiple-comparison
+correction); one TRAIN/TEST split = one regime. Honest exploration, not a proven edge.
 
 The synthesized bottom line is **§0 of `docs/portfolio-flavors.md`** ("Bottom line — the
-honest conclusion across all nine rounds"): the six structural findings, a "what
-actually won by objective" table (AW / RP winner / EW-Infl-Both / EW-Infl-BothL /
-EW-InflC-Both6 / EW-InflC-Dur / EW-Scale-Mom6 / EW-Scale-Mom / EW-Scale-MomL /
-EW-Hedge-Dur-MA / EW-Infl-Dur / EW-MA-Short / EW-Hedge-MA / EW-Hedge-Dur-DD), the
-statistical-honesty caveat (every DSR negative; almost all CIs span zero except the
-round-8 duration family and the round-9 scaled-gross family with positive/near-zero lower
-bounds; one TRAIN/TEST split), and the conclusion that the combined goal is not achievable
-on this universe with these primitives — the two halves are achievable separately but not
-together (round 9 added a third failure mode: scaling gross with a lagging scalar reverses
-the asymmetry).
+honest conclusion across all nine rounds — investigation closed"): the six structural
+findings, a "what actually won by objective" table (AW / RP winner / EW-Infl-Both /
+EW-Infl-BothL / EW-InflC-Both6 / EW-InflC-Dur / EW-Scale-Mom6 / EW-Scale-Mom /
+EW-Scale-MomL / EW-Hedge-Dur-MA / EW-Infl-Dur / EW-MA-Short / EW-Hedge-MA /
+EW-Hedge-Dur-DD), the statistical-honesty caveat, and the final verdict that the
+combined goal is not achievable on this universe with these primitives — the two halves
+are achievable separately but not together (round 9 added a third failure mode: scaling
+gross with a lagging scalar reverses the asymmetry). The final "investigation closed"
+paragraph names the one untried cell and why it was not run.
 
 **Measured practical picks (OOS 2018-2026, NOT statistically significant):**
 - Best risk-adjusted long-only benchmark: All-Weather 7.37% / 1.055 (nothing beat its Sharpe).
