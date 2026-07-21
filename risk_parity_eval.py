@@ -386,7 +386,9 @@ SCHEME_ORDER = ["EW", "InvVol", "InvVar", "ERC", "MinVar", "LS-TSMOM",
                 "EW-AsymMA-Short-6", "EW-AsymMA-Short-9", "EW-AsymMA-Tight",
                 "EW-AsymVol-Short",
                 "EW-Hedge-DMA-1", "EW-Hedge-DMA", "EW-Hedge-DMA-2",
-                "EW-Hedge-MA", "EW-Hedge-DD"]
+                "EW-Hedge-MA", "EW-Hedge-DD",
+                "EW-Hedge-Dur", "EW-Hedge-Dur-MA", "EW-Hedge-Dur-DD",
+                "EW-Hedge-Dur-2", "EW-Hedge-Dur-DD2"]
 # Schemes that solve a covariance-based target weight annually (vs LS-TSMOM,
 # which is a monthly momentum signal with no covariance target).
 COV_SCHEMES = {"EW", "InvVol", "InvVar", "ERC", "MinVar"}
@@ -500,6 +502,28 @@ FLAVOR_PRESETS: Dict[str, dict] = {
     "EW-Hedge-DD":     {"trend_gate": True, "gate_mode": "overlay", "base_mode": "ew",
                         "gate_signal": "dd_stop", "w_hedge": 1.5, "w_overlay": 0.0,
                         "struct_short": None},
+    # --- Round 6: decoupled overlay + DURATION short (the both-down / stagflation
+    # fix) + a fast equity-drawdown trigger. Same never-flip long base as round 5
+    # (Upβ stays positive), but the additive overlay now ALSO shorts the BOND
+    # sleeves on their own downside signal (w_hedge_bd) -- directly hedging the
+    # both-down months where bonds fall WITH equities (the round-5 gap). The
+    # "eq_dd" presets swap the lagging dma/ma equity signal for a symmetric fast
+    # drawdown trigger that fires IN down-months. ---
+    "EW-Hedge-Dur":    {"trend_gate": True, "gate_mode": "overlay", "base_mode": "ew",
+                        "gate_signal": "dma", "w_hedge": 1.5, "w_hedge_bd": 1.5,
+                        "w_overlay": 0.0, "struct_short": None},
+    "EW-Hedge-Dur-MA": {"trend_gate": True, "gate_mode": "overlay", "base_mode": "ew",
+                        "gate_signal": "ma", "w_hedge": 1.5, "w_hedge_bd": 1.5,
+                        "w_overlay": 0.0, "struct_short": None},
+    "EW-Hedge-Dur-DD": {"trend_gate": True, "gate_mode": "overlay", "base_mode": "ew",
+                        "gate_signal": "eq_dd", "w_hedge": 1.5, "w_hedge_bd": 1.5,
+                        "w_overlay": 0.0, "struct_short": None},
+    "EW-Hedge-Dur-2":  {"trend_gate": True, "gate_mode": "overlay", "base_mode": "ew",
+                        "gate_signal": "dma", "w_hedge": 1.5, "w_hedge_bd": 2.0,
+                        "w_overlay": 0.0, "struct_short": None},
+    "EW-Hedge-Dur-DD2":{"trend_gate": True, "gate_mode": "overlay", "base_mode": "ew",
+                        "gate_signal": "eq_dd", "w_hedge": 1.5, "w_hedge_bd": 2.0,
+                        "w_overlay": 0.0, "struct_short": None},
 }
 
 
@@ -750,6 +774,21 @@ def _gate_signal(H: np.ndarray, lookback: int, gate_signal: str,
                 state = np.where(to_short, -1.0, np.where(to_long, 1.0, state))
             sig[t] = state
         return sig
+    if gate_signal == "eq_dd":
+        # Round 6: SYMMETRIC fast drawdown trigger (no hysteresis band beyond the
+        # dd_exit/dd_entry dead-zone). Short a sleeve once it is > dd_exit below
+        # its trailing dd_window-m peak (a drawdown is underway), long once it is
+        # back within dd_entry of the peak (recovered). Fires FAST in down-months
+        # and releases FAST in recoveries -- the round-5 "dma/ma fires ~12m too
+        # late" fix. StateLESS (unlike dd_stop's hysteretic state), so it cannot
+        # get stuck short through chop; the price is more whipsaw near the peak.
+        for t in range(T):
+            if t >= dd_window:
+                pk = np.max(lvl[t - dd_window:t], axis=0)      # trailing peak
+                dd = (lvl[t - 1] - pk) / pk                    # drawdown (<=0)
+                sig[t] = np.where(dd < -dd_exit, -1.0,         # in a drawdown -> short
+                                  np.where(dd > -dd_entry, 1.0, 0.0))  # near high -> long
+        return sig
     if gate_signal == "asym_vol":
         # Hysteretic vol-regime: a vol spike flees (fast exit), vol must
         # genuinely calm below a LOWER bar to return (slow re-entry). The
@@ -784,7 +823,8 @@ def _backtest_flavor(panel: pd.DataFrame, ret_full: pd.DataFrame,
                      precomp: Dict[pd.Timestamp, Tuple[np.ndarray, np.ndarray]],
                      preset: dict, lookback: int, cost_bps: float,
                      lev_rate: float, cap: float = 0.20,
-                     erc_cap_mode: str = "capped") -> Dict[str, np.ndarray]:
+                     erc_cap_mode: str = "capped",
+                     bonds: Optional[List[str]] = None) -> Dict[str, np.ndarray]:
     """TrendProtect flavor backtest -- one parameterized function for all four
     constructions (the FLAVOR_PRESETS are just knobs of this one engine).
 
@@ -817,6 +857,8 @@ def _backtest_flavor(panel: pd.DataFrame, ret_full: pd.DataFrame,
     R = panel.values[:, sleeve_idx]
     eq_set = set(eq) if eq else set()
     is_eq = np.array([nm in eq_set for nm in names], dtype=bool)
+    bond_set = set(bonds) if bonds else set()
+    is_bond = np.array([nm in bond_set for nm in names], dtype=bool)
     trend_gate = bool(preset.get("trend_gate", False))
     gate_mode = str(preset.get("gate_mode", "cash"))   # "cash" or "short"
     gate_signal = str(preset.get("gate_signal", "tsmom"))   # "tsmom"|"ma"|"vol"|"dma"
@@ -825,6 +867,13 @@ def _backtest_flavor(panel: pd.DataFrame, ret_full: pd.DataFrame,
     # base weight to short, additively, when the downside signal fires). 0 by
     # default -> existing presets byte-identical; only round-5 presets set it.
     w_hedge = float(preset.get("w_hedge", 0.0))
+    # Round-6 duration/bond overlay size (fraction of each BOND sleeve's base
+    # weight to short, additively, when that sleeve's own downside signal fires).
+    # 0 by default -> existing presets byte-identical; only round-6 presets set
+    # it. Reuses the same per-sleeve ``gd`` signal, so the bond overlay shorts
+    # bonds on bonds' OWN downtrend (stagflation 2022) and stays flat when bonds
+    # are up (flight-to-quality 2008/2020) -- the targeted both-down fix.
+    w_hedge_bd = float(preset.get("w_hedge_bd", 0.0))
     ss = preset.get("struct_short")
     short_name = ss[0] if ss else None
     w_short = float(ss[1]) if ss else 0.0
@@ -951,6 +1000,15 @@ def _backtest_flavor(panel: pd.DataFrame, ret_full: pd.DataFrame,
                 # use a symmetric signal (ma/dma) or dd_stop, NOT asym_ma.
                 down = is_eq & (gd < 0.0)
                 ol[down] = -w_hedge * base_w[down]
+                # Round 6: duration/bond overlay. Short the BOND sleeves on their
+                # OWN downside signal (gd<0), additively. In stagflation (2022) bonds
+                # trend down -> the short fires -> clips the both-down loss the
+                # equity-only overlay missed. In flight-to-quality (2008 Q4, 2020
+                # Q1) bonds trend UP -> gd>=0 -> no short -> no bleed. Reuses the
+                # same gd, so it is causal and adds no new signal plumbing.
+                if w_hedge_bd > 0.0:
+                    down_bd = is_bond & (gd < 0.0)
+                    ol[down_bd] += -w_hedge_bd * base_w[down_bd]
             else:   # "cash": gate equity to 0 when gd<=0 (long-only, gross<=1)
                 gate = np.where(gd > 0.0, 1.0, 0.0)
                 long_leg = long_leg * np.where(is_eq, gate, 1.0)
@@ -972,7 +1030,7 @@ def _backtest_flavor(panel: pd.DataFrame, ret_full: pd.DataFrame,
         # Additive gross for the round-5 overlay (long base + separate short
         # notional, NOT sleeve-netted) -> leverage cost on the true gross; the
         # other modes use the netted |pos_target| as before (byte-identical).
-        if gate_mode == "overlay" and w_hedge > 0.0:
+        if gate_mode == "overlay" and (w_hedge > 0.0 or w_hedge_bd > 0.0):
             gross_notional = float(np.abs(long_leg).sum()) + float(np.abs(ol).sum())
         else:
             gross_notional = float(np.abs(pos_target).sum())
@@ -997,20 +1055,22 @@ def backtest(panel: pd.DataFrame, precomp: Dict[pd.Timestamp, Tuple[np.ndarray, 
              ret_full: Optional[pd.DataFrame] = None,
              tsmom_lookback: int = 12,
              eq: Optional[List[str]] = None,
-             lev_rate: float = 0.0) -> Dict[str, np.ndarray]:
+             lev_rate: float = 0.0,
+             bonds: Optional[List[str]] = None) -> Dict[str, np.ndarray]:
     """Backtest one combo (via its sleeve position indices) under one scheme.
     Returns gross, net, turnover monthly arrays + last weights + last cov-based
     diversification ratio. LS-TSMOM is a monthly momentum signal (no annual
     refit / no covariance target) and dispatches to _backtest_ls_tsmom. The four
     TrendProtect flavors dispatch to _backtest_flavor (needs `eq` for the equity
-    trend-gate and `lev_rate` for the leverage funding cost). Long-only COV
-    schemes ignore eq / lev_rate."""
+    trend-gate and `lev_rate` for the leverage funding cost; round-6 duration
+    overlays also need `bonds`). Long-only COV schemes ignore eq / bonds / lev_rate."""
     if scheme == "LS-TSMOM":
         return _backtest_ls_tsmom(panel, ret_full, sleeve_idx, tsmom_lookback, cost_bps)
     if scheme in FLAVOR_PRESETS:
         return _backtest_flavor(panel, ret_full, sleeve_idx, eq, precomp,
                                 FLAVOR_PRESETS[scheme], tsmom_lookback, cost_bps,
-                                lev_rate, cap=cap, erc_cap_mode=erc_cap_mode)
+                                lev_rate, cap=cap, erc_cap_mode=erc_cap_mode,
+                                bonds=bonds)
     idx = panel.index
     R = panel.values
     T = len(idx)
@@ -1335,7 +1395,8 @@ def fast_search(panel: pd.DataFrame, ret_full: pd.DataFrame, both_down: pd.Serie
                 tsmom_lookback: int = 12,
                 eq: Optional[List[str]] = None,
                 score_mode: str = "default",
-                lev_rate: float = 0.0) -> pd.DataFrame:
+                lev_rate: float = 0.0,
+                bonds: Optional[List[str]] = None) -> pd.DataFrame:
     sleeves_all = list(panel.columns)
     pos = {s: i for i, s in enumerate(sleeves_all)}
     precomp = precompute_refits(ret_full, sleeves_all, panel.index, trailing, shrink)
@@ -1350,7 +1411,7 @@ def fast_search(panel: pd.DataFrame, ret_full: pd.DataFrame, both_down: pd.Serie
             bt = backtest(panel, precomp, idxs, sch, cap, cost_bps,
                           erc_cap_mode=erc_cap_mode, ret_full=ret_full,
                           tsmom_lookback=tsmom_lookback,
-                          eq=eq, lev_rate=lev_rate)
+                          eq=eq, lev_rate=lev_rate, bonds=bonds)
             m = compute_metrics(bt["net"], bt["gross"], bt["turnover"], panel.index,
                                 both_down, eq_ref, bd_ref, bt["div_ratio"])
             row = {"combo": ",".join(combo), "scheme": sch, "n_sleeves": len(combo)}
@@ -1454,7 +1515,8 @@ def rolling_full_select(ret_full: pd.DataFrame, avail: List[str], eq: List[str],
         res = fast_search(panel_trail, ret_full, bd_trail, eqr, bdr, combos, schemes,
                           cap, cost_bps, shrink, trailing, label=f"roll{y}",
                           progress_every=10**9, erc_cap_mode=erc_cap_mode,
-                          eq=trail_eq, score_mode=score_mode, lev_rate=lev_rate)
+                          eq=trail_eq, score_mode=score_mode, lev_rate=lev_rate,
+                          bonds=trail_bd)
         if res.empty:
             continue
         best = res.iloc[0]
@@ -1681,7 +1743,8 @@ def main(argv=None) -> int:
                             args.cap, cost, args.shrink, args.trailing, label="TRAIN",
                             erc_cap_mode=args.erc_cap_mode,
                             tsmom_lookback=args.tsmom_lookback,
-                            eq=eq, score_mode=args.score_mode, lev_rate=args.lev_rate)
+                            eq=eq, score_mode=args.score_mode, lev_rate=args.lev_rate,
+                            bonds=bd)
     train_res.to_csv(os.path.join(args.out_dir, "train_results.csv"), index=False)
     print(f"Wrote train_results.csv ({len(train_res)} rows)")
 
@@ -1821,7 +1884,7 @@ def main(argv=None) -> int:
         f_bt = backtest(panel_te, pre_te, f_idxs, fname, args.cap, cost,
                         erc_cap_mode=args.erc_cap_mode, ret_full=ret,
                         tsmom_lookback=args.tsmom_lookback,
-                        eq=eq, lev_rate=args.lev_rate)
+                        eq=eq, lev_rate=args.lev_rate, bonds=bd)
         f_te_m = compute_metrics(f_bt["net"], f_bt["gross"], f_bt["turnover"],
                                  panel_te.index, bd_te, eqr_te, bdr_te, f_bt["div_ratio"])
         f_dsr = deflated_sharpe(f_bt["net"], max(len(combos), 2))
@@ -2654,6 +2717,64 @@ def write_report(args, train_res, test_eval, oos_port, oos_m, sel_log, win,
                  "still fast-deactivate.",
                  "Drawdown thresholds (10% / 3%) are tuned; additive gross -> "
                  "leverage cost. Check DSR / bootstrap CI; one split = one regime."]),
+            "EW-Hedge-Dur": (
+                ["Round-6: round-5 decoupled overlay (never-flip long EW base -> "
+                 "Upβ positive) PLUS a duration/bond overlay (w_hedge_bd=1.5) that "
+                 "shorts the BOND sleeves on their OWN dma downtrend. The direct "
+                 "fix for the round-5 gap: in both-down / stagflation months bonds "
+                 "fall WITH equities, and an equity-only overlay could not touch "
+                 "them. Shorting bonds on bonds' own downtrend clips that loss.",
+                 "Self-avoiding flight-to-quality: when bonds RISE (2008 Q4, 2020 "
+                 "Q1) their dma is up -> no bond short -> no bleed there.",
+                 "Equity overlay (w_hedge=1.5, dma) unchanged from round 5."],
+                ["Two additive shorts (equity + bonds) -> higher gross -> more "
+                 "leverage cost than round 5. The dma signal still lags ~12m on the "
+                 "equity side (the round-5 'fires too late' issue is only half-fixed "
+                 "here). Bond dma can whipsaw in choppy rates regimes. Check DSR / "
+                 "bootstrap CI; one split = one regime."]),
+            "EW-Hedge-Dur-MA": (
+                ["Round-6 duration overlay with the symmetric 10m MA signal (vs "
+                 "EW-Hedge-Dur's dma) on BOTH the equity and bond shorts.",
+                 "Same never-flip long EW base + duration short (w_hedge_bd=1.5) "
+                 "targeting the both-down gap; self-avoiding flight-to-quality."],
+                ["The single 10m MA deactivates slower than dma in a V-rebound on "
+                 "both sleeves -> can drag the start of rallies. Two additive shorts "
+                 "-> leverage cost. Check DSR / bootstrap CI; one split = one regime."]),
+            "EW-Hedge-Dur-DD": (
+                ["Round-6 with the FAST equity-drawdown trigger (gate_signal=eq_dd): "
+                 "a SYMMETRIC, stateless drawdown gate that shorts a sleeve once it "
+                 "is >10% below its 6m peak and releases once back within 3% — fires "
+                 "IN down-months and releases fast in recoveries, the direct fix for "
+                 "round-5's 'dma/ma fires ~12m too late' problem.",
+                 "Duration overlay (w_hedge_bd=1.5) shorts bonds on bonds' own "
+                 "drawdown -> clips the both-down loss; flight-to-quality safe.",
+                 "The user's literal ask: short duration/TLT in the overlay + a fast "
+                 "equity-drawdown trigger."],
+                ["eq_dd is stateless -> more whipsaw near peaks than hysteretic "
+                 "dd_stop (can toggle short/long in chop). For bonds a 10% drawdown "
+                 "threshold rarely fires (bonds less vol) -> the bond leg may stay "
+                 "quiet outside a true bond rout (2022). Two additive shorts + the "
+                 "fast trigger -> higher turnover / leverage cost. Check DSR / "
+                 "bootstrap CI; one split = one regime."]),
+            "EW-Hedge-Dur-2": (
+                ["Round-6 with a BIGGER duration short (w_hedge_bd=2.0 vs 1.5) on "
+                 "the dma signal: w_hedge_bd>1 means net-short duration in bond-down "
+                 "months — a more aggressive stagflation hedge, the brief's 'short a "
+                 "ticker' (short TLT / long-duration) as a conditional overlay.",
+                 "Same never-flip long EW base (Upβ positive); equity overlay dma."],
+                ["Net-short duration when bonds trend down -> larger gross / leverage "
+                 "cost and larger whipsaw if the bond rout reverses. dma still lags "
+                 "on equity. Check DSR / bootstrap CI; one split = one regime."]),
+            "EW-Hedge-Dur-DD2": (
+                ["Round-6 combining BOTH levers at full strength: fast eq_dd equity "
+                 "trigger + a bigger 2.0x duration short. The maximal mechanical fix "
+                 "for the round-5 diagnosis (equity overlay fires too late AND can't "
+                 "touch bonds in both-down).",
+                 "Never-flip long EW base -> Upβ positive by construction."],
+                ["Most parameters / overfitting surface of the round-6 family; "
+                 "highest gross / leverage cost and turnover. eq_dd's bond leg may "
+                 "stay quiet outside a true bond rout. Check DSR / bootstrap CI; one "
+                 "split = one regime."]),
         }
         for fname in SCHEME_ORDER:
             if fname not in flavor_data:

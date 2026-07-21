@@ -436,30 +436,100 @@ construction: the never-flip base, the additive short overlay, the up/down-month
 pseudocode, the five presets), §5e (round-5 measured menu + verdict + top picks + the
 reporting caveat + the round-6 lever), round-5 reproduction command, canonical-reports list.
 
-## INVESTIGATION CLOSED — final honest conclusion (2026-07-20, user decision)
-After five rounds / 27 TrendProtect flavors, **the brief's property was not achieved**:
-no flavor both beats All-Weather's 7.37% / Sharpe 1.055 net OOS AND has Upβ > Dnβ. The
-two requirements are in tension on this universe, with one structural blocker per failure
-mode (rounds 2-4b: shorting equity on a downside gate drives Upβ negative — structural,
-not a tunable lag; round 5: decoupling fixes Upβ but an equity-only overlay can't bring
-Dnβ down because bonds/duration fall WITH equities in both-down months and the dma/ma gate
-fires too late). User directed to **stop and document** rather than build round 6.
+## TrendProtect round 6 — duration/bond overlay + fast eq_dd drawdown trigger (2026-07-20)
 
-The synthesized bottom line is written as **§0 of `docs/portfolio-flavors.md`** ("Bottom
-line — the honest conclusion across all five rounds"): the two structural blockers, a
-"what actually won by objective" table (AW / RP winner / EW-AsymMA-Tight / EW-MA-Short /
-EW-Hedge-MA), the statistical-honesty caveat (every DSR negative, one TRAIN/TEST split),
-and the untested round-6 lever (short duration/TLT in the overlay + a fast equity-drawdown
-trigger) recorded as the single most likely next step if the property is ever pursued.
+User directive (verbatim): *"Let's test short duration/TLT in the overlay + a fast
+equity-drawdown trigger — the mechanical fix for the 'bonds fall with equities' gap that
+keeps Dnβ positive."* Built BOTH levers from the round-5 "next lever" note, in one
+parameterized engine (opt-in, defaults preserve existing presets byte-identical).
+
+**Code (`risk_parity_eval.py`, working tree):**
+- New `gate_signal="eq_dd"` branch in `_gate_signal` — a symmetric, stateless fast
+  drawdown trigger: short a sleeve once it is > `dd_exit` (10%) below its trailing
+  `dd_window` (6m) peak; long once back within `dd_entry` (3%) of the peak. Fires FAST in
+  down-months, releases FAST in recoveries (no lag-through-recovery Upβ drag).
+- New `w_hedge_bd` param + `bonds` param threaded through `backtest` → `_backtest_flavor`
+  → `fast_search` → `rolling_full_select` → call sites. In `gate_mode=="overlay"`, after
+  the equity short, add a **duration/bond overlay**: `ol[bond] += -w_hedge_bd·base_w[bond]`
+  on `is_bond & (gd<0)` — short the bond sleeves on their OWN downside signal
+  (self-avoiding flight-to-quality: bonds up → no short; bonds down/stagflation → fires).
+- Gross additively includes both overlays: `|long_leg|.sum() + |ol|.sum()` when
+  `w_hedge>0 or w_hedge_bd>0`. Default `w_hedge_bd=0` → existing presets unchanged.
+- 5 round-6 presets in FLAVOR_PRESETS (EW-Hedge-Dur / -Dur-MA / -Dur-DD / -Dur-2 /
+  -Dur-DD2) — `dma`/`ma`/`eq_dd` gate signals × `w_hedge_bd` {1.5, 2.0}; added to SCHEME_ORDER
+  and to the `pc` pros/cons dict. `py_compile` + `import risk_parity_eval` OK.
+
+**Opt-in regression guard (verified):** `output/rp_reg6/report_eval.md` (22-scheme round-4b
+anchor set + round-6 code) §1–4 byte-identical to `output/risk_parity_eval_asym4b/report_eval.md`
+— the new code paths are genuinely opt-in; existing presets are unaffected.
+
+**Canonical run:** `output/risk_parity_eval_asym6/report_eval.md` (32 schemes, 90 144 TRAIN
+trials, exit 0).
+
+**Measured verdict (round 6, honest) — the duration overlay did its mechanical job on
+both-down but could NOT flip Upβ > Dnβ.** Five EW-Hedge-Dur presets, all Dnβ > Upβ:
+- EW-Hedge-Dur (dma): 0.26%/0.030, both-down -14.07%, Upβ -0.024/Dnβ 0.399/Dn-corr 0.430, DSR -1.28.
+- **EW-Hedge-Dur-MA (ma): 2.28%/0.296, both-down -12.10% (BEATS AW's -18.74% and round-5's
+  -20.17%), Upβ -0.025/Dnβ 0.243/Dn-corr 0.334, DSR -1.02** — duration overlay hedged
+  stagflation as designed (best both-down of all 32 flavors), but drove Upβ NEGATIVE.
+- EW-Hedge-Dur-2 (dma, bd2.0): -0.35%/-0.040, both-down -12.73%, Upβ -0.060, DSR -1.35 —
+  bigger duration hedge → negative net return.
+- **EW-Hedge-Dur-DD (eq_dd): 3.29%/0.345, both-down -26.31% (WORSE than AW), Upβ 0.146
+  (positive — fast trigger preserved upside)/Dnβ 0.559, DSR -0.97** — fast trigger kept
+  Upβ but its 10% bond-drawdown threshold rarely fires for bonds → duration leg quiet →
+  Dnβ stayed high; whipsaw made both-down worse.
+- EW-Hedge-Dur-DD2 (eq_dd, bd2.0): 3.02%/0.315, both-down -25.75%, Upβ 0.126/Dnβ 0.542, DSR -1.00.
+
+Two failure modes (one per gate): (1) lagging `dma`/`ma` duration short → both-down
+better but Upβ dragged negative through recoveries (round-4b failure recurs on duration
+leg); (2) fast `eq_dd` → Upβ kept but threshold too high to fire the bond hedge → Dnβ
+unmoved + whipsaw cost → both-down worse. No round-6 flavor beats 7.37%; all DSR negative;
+no CI excludes zero.
+
+**Cross-investigation result: ALL 32 flavors (six rounds) have Upβ < Dnβ.** The property
+is met by zero. The structural reason: "correlated up, not down" needs a downside hedge
+with effectively PERFECT timing — fire only in down-months, never in up-months — and no
+causal sleeve-level signal on this universe provides it (lagging → drags Upβ; fast →
+doesn't fire the hedge). The remaining lever is a LEADING (macro/regime: yield-curve /
+real-rate / carry) gate that fires before the equity drawdown, or holding a genuinely
+short-duration ticker (short TLT) only inside an ex-ante stagflation regime.
+
+Docs: `docs/portfolio-flavors.md` updated — intro (round-6 sentence), §3g (the duration
+overlay + eq_dd construction + 5-preset table + opt-in note), round-6 reproduction command,
+canonical-reports list (asym6), §5f (round-6 measured menu + verdict + top picks), and
+§0 updated to six rounds / 32 flavors / "all 32 have Upβ < Dnβ" / round-6 row in the
+winners table / "lever WAS tested in round 6 and also failed."
+
+## INVESTIGATION CLOSED — final honest conclusion (2026-07-20, after round 6)
+After six rounds / 32 TrendProtect flavors, **the brief's property was not achieved**:
+no flavor both beats All-Weather's 7.37% / Sharpe 1.055 net OOS AND has Upβ > Dnβ — in
+fact ALL 32 flavors have Upβ < Dnβ. Three structural blockers, one per failure mode:
+rounds 2-4b shorting equity on a downside gate drives Upβ negative (structural, not
+tunable); round 5 decoupling fixes Upβ but an equity-only overlay can't bring Dnβ down
+(bonds/duration fall WITH equities in both-down, dma/ma gate fires too late); round 6
+shorting duration in the overlay fixes the both-down regime but trades Upβ for it
+(lagging duration short drags Upβ negative) while the fast eq_dd trigger keeps Upβ but
+its threshold rarely fires the bond hedge so Dnβ stays high. User originally chose "stop
+and document" after round 5, then directed round 6 to be run; round 6 was run and also
+failed to meet the property.
+
+The synthesized bottom line is **§0 of `docs/portfolio-flavors.md`** ("Bottom line — the
+honest conclusion across all six rounds"): the three structural blockers, a "what actually
+won by objective" table (AW / RP winner / EW-Hedge-Dur-MA / EW-MA-Short / EW-Hedge-MA /
+EW-Hedge-Dur-DD), the statistical-honesty caveat (every DSR negative, one TRAIN/TEST split),
+and the remaining lever (a LEADING macro/regime downside signal or a short-duration ticker
+held only in an ex-ante stagflation regime) recorded as the single most likely next step.
 
 **Measured practical picks (OOS 2018-2026, NOT statistically significant):**
 - Best risk-adjusted long-only benchmark: All-Weather 7.37% / 1.055 (nothing beat its Sharpe).
 - Beats AW on return, no asymmetry: RP winner (MinVar) 9.94% / 0.945 (Dnβ 0.619 > Upβ 0.406).
-- Best downside protection of all 27: EW-AsymMA-Tight, both-down -10.91%, Dn-corr 0.417
-  (but Upβ ≈ Dnβ — symmetric short-leaning, asymmetry collapsed).
+- Best downside protection of all 32: EW-Hedge-Dur-MA (round 6), both-down -12.10%, Dn-corr
+  0.334 — but Upβ -0.025 (negative); the duration overlay won the regime at the cost of Upβ.
 - Best balance (positive Upβ + downside < AW): EW-MA-Short 4.25% / 0.613, Upβ 0.013,
-  both-down -12.97%, Dn-corr 0.224 — the closest any flavor came to the brief.
+  both-down -12.97%, Dn-corr 0.224 — STILL the closest any flavor came to the brief across
+  all six rounds (no round 5 or 6 preset dethroned it).
 - Round-5 best (Upβ fixed by construction): EW-Hedge-MA 3.60% / 0.463, Upβ 0.127, Dnβ 0.362.
+- Round-6 best (fast trigger kept Upβ): EW-Hedge-Dur-DD 3.29% / 0.345, Upβ 0.146, Dnβ 0.559.
 
 ## Next steps (open) — risk parity
 - A proper OOS multiple-comparison test (Holm/Bonferroni over effective-N, or DSR on the
