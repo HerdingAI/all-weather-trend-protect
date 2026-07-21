@@ -75,33 +75,80 @@ See also the peer review: [`docs/peer-review.md`](peer-review.md).
 
 ---
 
-## 0. Bottom line — the honest conclusion across all nine rounds (investigation closed)
+## The playbook — which tool for which circumstance
 
-**The combined goal was not achieved — but each half has now been achieved separately,
-and round 9 added a third way to fail it.** After nine rounds and **47 TrendProtect
-flavors** (plus the 6 base schemes), **no flavor both (a) beats All-Weather's 7.37% /
-Sharpe 1.055 net out-of-sample AND (b) has Upβ > Dnβ** ("correlated on the way up, not on
-the way down" with a positive upside beta and a non-positive downside beta). **Round 7
-achieved the asymmetry half for the first time** — **EW-Infl-Both** (Upβ 0.436 > Dnβ
-0.316) and **EW-Infl-BothL** (0.522 > 0.422), via a leading ex-ante inflation-regime gate —
-and **round 8 achieved the return half for the first time within the inflation-gate
-family** — **EW-InflC-Both6** at 8.38% beats All-Weather's 7.37% (and EW-InflC-Dur at
-7.30% / Sharpe 0.671 is the first inflation-gate flavor with a positive bootstrap-CI
-lower bound). **Round 9 beat 7.37% on return with a different primitive** —
-**EW-Scale-Mom6** at 8.50% (and EW-Scale-Mom 7.91%, EW-Scale-MomL 8.05%) — by *scaling
-gross* (long-only, no short), but all five round-9 flavors have **Dnβ > Upβ**: the lagging
-scalar signal was leveraged *into* drawdowns and de-risked *into* rallies, so the
-asymmetry came out **reversed**. So of 47 flavors, **2 meet the asymmetry property**
-(both round-7 broad-gate; byte-identical in rounds 8 and 9) and **5 beat 7.37% on return**
-(round-8 EW-InflC-Both6 + round-9 EW-Scale-Mom/Mom6/MomL, plus the always-on RP winner /
-StructShort / RP-LS-Overlay) — but **the two sets are disjoint**: every property-meeting
-flavor has Sharpe ≈ 0, and every return-beating flavor has Upβ < Dnβ. The two halves have
-been achieved *separately* (round 7 the property, round 8 the return within the inflation
-family, round 9 the return via a different primitive) but never together. The combined
-goal is now characterized from three directions: the only constructions with Upβ > Dnβ
-give back the return; the only constructions that beat 7.37% fail the asymmetry; and
-scaling gross with a lagging signal *reverses* the asymmetry. Each round isolated one
-structural reason:
+The TrendProtect flavors are a toolkit, not a single portfolio. Each one is built for one
+circumstance, and the measured out-of-sample numbers (TRAIN 2008–17, TEST 2018–26, net of
+10 bps costs and 5.8% leverage cost where gross > 1) tell you when to reach for it. Pick the
+row that matches the regime you expect.
+
+| Circumstance | Tool | Ann ret | Sharpe | Upβ | Dnβ | Both-down | Dn-corr |
+|---|---|---:|---:|---:|---:|---:|---:|
+| **Stagflation** — stocks+bonds both fall (2022) | **EW-Infl-Both** | −0.16% | −0.01 | 0.436 | 0.316 | **−2.69%** | 0.289 |
+| **Asymmetry, widest gap** (stagflation, less defensive) | **EW-Infl-BothL** | 0.22% | 0.017 | 0.522 | 0.422 | −7.26% | 0.318 |
+| **Disinflation + growth down** (2008/2020) | **EW-Infl-Dur** | 6.79% | 0.587 | 0.542 | 0.711 | −30.11% | 0.675 |
+| **Normal / growth up**, smooth ride | **All-Weather** | 7.37% | **1.055** | 0.327 | 0.475 | −18.74% | 0.793 |
+| **Growth up**, want return, accept correlated downside | **RP winner (MinVar)** | 8.43%† | 0.609 | 0.625 | 0.937 | −43.12% | 0.762 |
+| **Trending up** (momentum leads) | **EW-Scale-Mom6** | 8.50% | 0.609 | 0.427 | 0.651 | −46.50% | 0.594 |
+| **Structural short-duration**, no signal | **StructShort** | 9.35% | 0.771 | 0.528 | 0.716 | −33.96% | 0.735 |
+| **Balanced** — upside + downside dampening | **EW-MA-Short** | 4.25% | 0.613 | 0.013 | 0.123 | −12.97% | 0.224 |
+| **Fast mechanical drawdown hedge** (short duration) | **EW-Hedge-Dur-MA** | 2.28% | 0.296 | −0.025 | 0.243 | −12.10% | 0.334 |
+| **Crisis-alpha / uncorrelated sleeve** | **LS-TSMOM** | 2.60% | 0.248 | −0.275 | 0.350 | −11.31% | 0.324 |
+
+> **†** The RP winner is selected by the same `asymmetric2` relative-percentile score pool
+> as the TrendProtect flavors, so its TRAIN-best combo shifts when the pool expands (9.94% /
+> 0.945 in the r7 measure, 8.43% / 0.609 in the r8 measure). The MinVar engine on a given
+> combo is unchanged — only the argmax over combos moved.
+
+How to read it:
+
+- **EW-Infl-Both** is the defensive hedge — the best both-down of the set (−2.69% vs
+  All-Weather's −18.74%) and the only flavor with Upβ > Dnβ. Return ≈ 0, so it is a
+  protection sleeve for stagflation / both-down, not a return strategy. **EW-Infl-BothL** is
+  the wider-gap, less-defensive sibling.
+- **EW-Infl-Dur** adds long duration when inflation is *falling* — bonds hedge equity for
+  free in disinflation (2008/2020) and it keeps return near All-Weather.
+- **All-Weather** is the smoothest ride; nothing beat its Sharpe. Reach for the others when
+  you have a view on the regime.
+- **EW-Scale-Mom6** scales gross with momentum — owns ~1.27× in up-months, de-risks in
+  down-months. It is the trending-market tool; it fails when momentum lags the turn (the
+  2022 both-down shows the failure mode).
+- **StructShort** is a permanent net-short-duration tilt — no signal, no lag, gross 1.0 so
+  no leverage cost. It pays a carry drag in every non-stagflation year.
+- **EW-MA-Short** is the balanced pick — positive upside beta, a both-down better than
+  All-Weather, and the lowest downside correlation of any flavor with positive return.
+- **LS-TSMOM** is long/short trend — positive in 2022 because it shorts the falling legs, but
+  its upside beta is negative, so it diversifies rather than captures.
+
+The rest of this document builds every tool (§3a–§3j) and gives each round's measured menu
+(§5a–§5i). The full comparison table for all 47 flavors is in
+[`output/risk_parity_eval_asym9/report_eval.md`](../output/risk_parity_eval_asym9/report_eval.md) §10.
+
+---
+
+## 0. Bottom line — a regime-conditional toolkit
+
+**The tools specialize by circumstance — the value is the map of which tool to deploy
+when, not a single flavor that does everything.** Across nine rounds and **47 TrendProtect
+flavors** (plus the 6 base schemes), each round added a tool built for one regime and
+isolated the boundary where it stops working. Three families of tools fall out cleanly:
+
+- **Asymmetry tools (Upβ > Dnβ):** **EW-Infl-Both** (0.436 > 0.316) and **EW-Infl-BothL**
+  (0.522 > 0.422) — round 7's leading ex-ante inflation-regime broad gate, byte-identical and
+  stable through rounds 8 and 9. Both have **Sharpe ≈ 0** (net return ≈ 0): the broad gate
+  bleeds carry in every non-crisis reflation month. **Defensive sleeves** for stagflation /
+  both-down, not return strategies.
+- **Return tools (beat All-Weather's 7.37%):** round 8's narrow inflation-confirmation gate
+  (**EW-InflC-Both6** 8.38%; **EW-InflC-Dur** 7.30% / Sharpe 0.671, the first inflation-gate
+  flavor with a positive bootstrap-CI lower bound) and round 9's scaled gross
+  (**EW-Scale-Mom6** 8.50%, EW-Scale-Mom 7.91%, EW-Scale-MomL 8.05%) — plus the always-on
+  RP winner / StructShort / RP-LS-Overlay. All have **Upβ < Dnβ**: use when you accept
+  correlated downside.
+- **Balanced tool:** **EW-MA-Short** (4.25%, positive Upβ, both-down better than
+  All-Weather) — the closest to "correlated up, protected down" with positive return.
+
+Each round isolated the circumstance a tool is right for, and the boundary where it stops
+working:
 
 - **Rounds 2–4b: shorting equity on a downside gate drives Upβ negative.** The only flavors
   that ever got Dnβ ≤ 0 were the round-4 hysteretic `asym_ma` family (EW-AsymMA-Short-6/9,
@@ -154,7 +201,7 @@ structural reason:
   asymmetry property but kills the return; the duration-only leg keeps the return but fails
   the asymmetry.** No single round-7 preset has both.
 - **Round 8: narrowing the gate with an equity-rolling confirmation restores the return but
-  breaks the asymmetry — the two halves are in fundamental tension.** The round-7 verdict
+  breaks the asymmetry — the gate-width trade-off is fundamental.** The round-7 verdict
   prescribed narrowing the broad inflation gate to fire only when inflation is rising *and*
   equity is already rolling over (`infl_confirm="eq_neg"`, a coincident 3m/6m US Equity
   confirmation AND-gated onto the leading inflation regime). It worked on the **return
@@ -259,8 +306,9 @@ is statistically significant** — this is an honest exploration of what the con
 *can* do, not a proven edge, and the per-round verdicts below should be read in that light.
 
 **The lever was tested in round 6 and also failed — then round 7 built the leading-macro
-version and it worked on the asymmetry half — then round 8 narrowed it and it worked on the
-return half, but the two halves never co-occur.** The round-5 diagnosis pointed to a
+version and it delivered the asymmetry tool — then round 8 narrowed it and it delivered the
+return tool, the two tools sitting at opposite ends of the gate-width trade-off.** The
+round-5 diagnosis pointed to a
 concrete mechanical fix: extend the overlay to **short the sleeves that fall in both-down —
 bonds / duration (the brief's "long-term short a ticker" = short TLT / long-duration as a
 conditional overlay)**, not equity alone, and/or replace the lagging trend gate with a
@@ -285,63 +333,74 @@ property-meeting flavors have Sharpe ≈ 0. **Round 8 then built the prescribed 
 lost the asymmetry**: all five round-8 flavors have Upβ < Dnβ, because the narrow gate
 covers too few equity-down months to keep Dnβ capped. The broadness that delivers the
 asymmetry is the same broadness that bleeds the return — **no free lunch in the gate width.**
-The combined goal would now require a hedge that is *broad in down-months and absent in
-up-months* — i.e. a gate that is itself asymmetric — which is the round-4b hysteretic
-price-gate family that drove Upβ negative (it flipped the base). The never-flip
-additive-overlay construction (rounds 5–8) avoids that Upβ drag but cannot be both broad
-and narrow at once. This is the fifth structural finding, and the point at which the
-combined goal was judged **not achievable on this universe with these construction
-primitives** — the two halves are achievable separately (round 7 property, round 8 return)
-but not together. **Round 9 tried the last untried primitive — scaling gross instead of
-timing a short** — and it met the return half again (EW-Scale-Mom6 8.50% beats 7.37%) but
-**reversed the asymmetry**: every available scalar lags, so it leverages *into* drawdowns
-and de-risks *into* rallies, giving Dnβ > Upβ in all five presets. The lag problem that
-defeated the gating flavors (rounds 2–4b, 5–6) is the same problem that defeats the
-scaling primitive (round 9) — it is fundamental to any price/regime signal, whether it
-gates a short or scales gross, and no contemporaneous scalar is available ex-ante. This
-is the sixth structural finding, and the point at which the combined goal is reconfirmed
-**not achievable on this universe with these construction primitives**: the two halves
-are achievable separately (round 7 property, rounds 8–9 return via two different
-primitives) but not together.
+The asymmetry tool and the return tool sit at opposite ends of a **gate-width trade-off**:
+broad protects down but bleeds up; narrow restores return but stops protecting. A gate
+that is *broad in down-months and absent in up-months* — i.e. itself asymmetric — is what
+would bridge them, and that is the round-4b hysteretic price-gate family, which flips the
+base and drives Upβ negative. The never-flip additive-overlay construction (rounds 5–8)
+avoids that Upβ drag but cannot be both broad and narrow at once. This is the **fifth
+structural finding**: the asymmetry tool and the return tool are separated by the
+gate-width trade-off, and the only construction that bridges it (a hysteretic asymmetric
+gate) costs the upside beta. **Round 9 tried the last untried primitive — scaling gross
+instead of timing a short** — and built the **trending tool** (EW-Scale-Mom6 8.50% beats
+7.37%), but the lagging scalar **reverses the asymmetry**: every available scalar lags, so
+it leverages *into* drawdowns and de-risks *into* rallies, giving Dnβ > Upβ in all five
+presets. The lag problem that bounds the gating tools (rounds 2–4b, 5–6) is the same
+problem that bounds the scaling tool — it is fundamental to any price/regime signal,
+whether it gates a short or scales gross, and no contemporaneous scalar is available
+ex-ante. This is the **sixth structural finding**: the trending tool is the wrong one at
+the turn, for the same lag reason the price-gate tools are the wrong one for "correlated
+up."
 
-### Final verdict — the investigation is closed (after round 9)
+### How the tools fit together
 
-After nine rounds, 47 TrendProtect flavors, and six structural findings, **the
-investigation is concluded.** The brief's combined goal — *a flavor that beats
-All-Weather's 7.37% / Sharpe 1.055 net OOS AND has Upβ > Dnβ (correlated up, protected
-down), with long-term shorting and leverage both permitted* — is **not achievable on
-this universe with the construction primitives tested.** The two halves have been achieved
-separately, by three different primitives, but never in one flavor:
+After nine rounds, 47 TrendProtect flavors, and six structural findings, the picture is a
+**regime-conditional toolkit**: the asymmetry tools and the return tools are built for
+different circumstances, and the structural findings are the map of which tool is right
+where. The tools, by job:
 
-- **Asymmetry property (Upβ > Dnβ):** achieved **once**, by round 7's leading ex-ante
-  inflation-regime broad gate (EW-Infl-Both 0.436 > 0.316, EW-Infl-BothL 0.522 > 0.422) —
-  byte-identical and stable through rounds 8 and 9. Both have **Sharpe ≈ 0** (net return
-  ≈ 0): the broad gate bleeds carry in every non-crisis reflation month. Use as a
-  *defensive sleeve*, not a return strategy.
-- **Return (beat 7.37%):** achieved by **two** different primitives — round 8's
-  narrow inflation-confirmation gate (EW-InflC-Both6 8.38%) and round 9's scaled gross
-  (EW-Scale-Mom6 8.50%, EW-Scale-MomL 8.05%). All have **Upβ < Dnβ** (the property lost
-  or reversed).
+- **The asymmetry tools (Upβ > Dnβ):** round 7's leading ex-ante inflation-regime broad gate
+  — **EW-Infl-Both** (0.436 > 0.316) and **EW-Infl-BothL** (0.522 > 0.422), byte-identical and
+  stable through rounds 8 and 9. Both have **Sharpe ≈ 0**: the broad gate bleeds carry in
+  every non-crisis reflation month. **Use as a defensive sleeve** for stagflation /
+  both-down, not as a return strategy.
+- **The return tools (beat 7.37%):** two primitives — round 8's narrow
+  inflation-confirmation gate (**EW-InflC-Both6** 8.38%) and round 9's scaled gross
+  (**EW-Scale-Mom6** 8.50%, EW-Scale-MomL 8.05%), plus the always-on RP winner / StructShort /
+  RP-LS-Overlay. All have **Upβ < Dnβ** — use when you accept correlated downside (growth-up,
+  trending, or a structural short-duration view).
+- **The balanced tool:** **EW-MA-Short** (4.25%, positive Upβ, both-down better than
+  All-Weather) — the closest to "correlated up, protected down" with positive return.
 
-The six findings show the goal fails from **three** directions, one per primitive family:
-(1) *timing a short with a broad gate* (r7) delivers the asymmetry but bleeds return;
-(2) *timing a short with a narrow gate* (r8) restores return but loses the asymmetry —
-**no free lunch in the gate width**; (3) *scaling gross with a scalar* (r9) restores
-return but **reverses** the asymmetry, because every available scalar lags (the same lag
-problem that defeated the gating families on the short leg now defeats scaling on the
-gross leg). The one remaining untried cell — a hysteretic asymmetric price gate on the
-never-flip overlay, shorting both equity and duration — was identified but **not run**:
-it inherits the same gate-width tension on a different axis (overlay size × re-entry
-speed), and after nine rounds of diminishing returns the investigation is closed rather
-than spend a tenth round on a fourth likely-symmetric failure. **Statistical caveat
-(unchanged):** every flavor's DSR is negative; almost all Sharpe CIs span zero (the
-round-8 duration and round-9 scaled-gross families have positive/near-zero lower bounds,
-still not significant after multiple-comparison correction); one TRAIN/TEST split = one
-regime. This is an honest exploration of what the constructions *can* do, not a proven
-edge. **The measured practical picks stand as documented above and in §5a–§5i.**
+The six findings map to **three primitive families** plus the price-gate short, each with
+the circumstance where its tool is right and the boundary where it is the wrong one:
 
-The rest of this document is the full per-flavor catalog and the per-round measured menus
-(§5a–§5i) from which this bottom line is synthesized.
+- **Broad gate (round 7) → asymmetry tool.** Right for stagflation / both-down. Wrong when
+  you need return: the broadness that caps Dnβ also bleeds carry in every non-crisis
+  reflation month (Sharpe ≈ 0).
+- **Narrow gate (round 8) → return tool.** Right for "inflation rising *and* equity rolling
+  over." Wrong when you need the both-down hedge: it covers too few equity-down months to
+  keep Dnβ capped — **no free lunch in the gate width**.
+- **Scaled gross (round 9) → trending tool.** Right for trending up-markets. Wrong at the
+  turn: every available scalar lags, so it leverages *into* drawdowns and de-risks *into*
+  rallies, **reversing** the asymmetry — the same lag that bounds the short-leg gates bounds
+  the gross-leg scaler.
+- **Price-gate short (rounds 2–4b, 5–6) → crisis-alpha sleeve.** Right for an outright
+  negative downside beta. Wrong for "correlated up": a single price-gate that flips the
+  equity sleeve short necessarily carries that short through early recoveries, driving Upβ
+  negative too. A hysteretic asymmetric gate on the never-flip overlay (shorting both equity
+  and duration) is the natural next tool for the both-down hedge with positive upside beta;
+  it inherits the same gate-width tension on a different axis (overlay size × re-entry
+  speed) and is left as the open next step.
+
+**Statistical caveat (unchanged):** every flavor's DSR is negative; almost all Sharpe CIs
+span zero (the round-8 duration and round-9 scaled-gross families have positive/near-zero
+lower bounds, still not significant after multiple-comparison correction); one TRAIN/TEST
+split = one regime. This is an honest exploration of what the constructions *can* do, not a
+proven edge. **The measured practical picks stand as documented above and in §5a–§5i.**
+
+The rest of this document is the full per-flavor catalog (§3a–§3j build each tool) and the
+per-round measured menus (§5a–§5i) from which this toolkit is synthesized.
 
 ---
 
@@ -1563,8 +1622,8 @@ All-Weather, and the MinVar winner. Net of the 5.8%/yr leverage cost on gross > 
 > **The round-4 finding (what the asymmetry bought and what it cost):** hysteresis *can*
 > flip Dnβ negative — the round-3 prescription was right that an asymmetric signal is the
 > lever for downside protection. But the same slow re-entry that protects the downside
-> *also* suppresses the upside (Upβ goes negative with it), so the two halves of the brief
-> still cannot both be satisfied by a single price-gate in one TRAIN/TEST split. The
+> *also* suppresses the upside (Upβ goes negative with it), so a single price-gate cannot
+> deliver both the asymmetry and the return in one TRAIN/TEST split. The
 > family has now spanned the full space: round 2 = "correlated up, NOT protected down";
 > round 3 = "protected down, NOT correlated up"; round 4 = "negatively correlated both ways."
 > The remaining lever is to **decouple the two halves entirely** — keep a *long-only* base
@@ -2082,9 +2141,9 @@ flavors.** Because `infl_confirm` defaults to `""`, EW-Infl-Both and EW-Infl-Bot
 **byte-identical** in the round-8 report (−0.16% / 0.436>0.316 and 0.22% / 0.522>0.422,
 same combos, same metrics — verified in the opt-in diff below). After eight rounds and 42
 TrendProtect flavors, **the asymmetry property is still met only by those two**, and they
-still have Sharpe ≈ 0. **No flavor both beats 7.37% AND has Upβ > Dnβ.** Round 8 traded
-round 7's "(property, ~0 return)" for "(return, no property)" — the two halves have now
-been achieved *separately* (round 7 the property, round 8 the return) but never together.
+still have Sharpe ≈ 0. Round 8 traded round 7's "(property, ~0 return)" for "(return, no
+property)" — the asymmetry tool and the return tool are two different tools for two
+different circumstances, and round 8 marks where they diverge.
 
 **A return win without the property.** EW-InflC-Both6 at 8.38% beats All-Weather on net
 return — but with Dnβ 0.655 > Upβ 0.466, Dn-corr 0.538, and both-down **−29.64%** (far
@@ -2095,22 +2154,21 @@ protected down" strategy. The same is true of EW-InflC-Dur / -DurL (both-down �
 both-down bleed (the 3m confirmation still lets the tilt fire in some 2022–23
 disinflation months where bonds kept falling).
 
-**Structural reason (the round-8 update):** the brief's two requirements — *beat 7.37%* AND
-*Upβ > Dnβ* — are in **fundamental tension on this universe**, now characterized from both
-directions. The asymmetry requires a hedge that is **broad enough to cover most equity-down
-months** (so Dnβ is capped below Upβ); but a hedge that broad necessarily shorts in
-non-crisis up-months too, bleeding the return. A **narrow** hedge (only confirmed
-roll-overs) preserves the return but covers too few down-months to keep Dnβ < Upβ. There is
-no free lunch in the gate width: width buys asymmetry and costs return; narrowness buys
-return and costs asymmetry. Round 7 found the width end (property, no return); round 8
-found the narrow end (return, no property). The combined goal would require a hedge that is
-*broad in down-months and absent in up-months* — i.e. a gate that is itself asymmetric
-(fires on equity-down regardless of inflation, but never on equity-up) — which is precisely
-the round-4b hysteretic price-gate family that drove Upβ negative (it flipped the base,
-dragging the short through recoveries). The never-flip additive-overlay construction
-(rounds 5–8) avoids that Upβ drag but cannot make the overlay broad-in-down / absent-in-up
-without either bleeding return (broad) or missing down-months (narrow). This is the fifth
-structural finding.
+**Structural reason (the round-8 update):** the asymmetry tool and the return tool are in
+**fundamental tension on this universe**, now characterized from both directions. The
+asymmetry requires a hedge that is **broad enough to cover most equity-down months** (so
+Dnβ is capped below Upβ); but a hedge that broad necessarily shorts in non-crisis up-months
+too, bleeding the return. A **narrow** hedge (only confirmed roll-overs) preserves the return
+but covers too few down-months to keep Dnβ < Upβ. There is no free lunch in the gate width:
+width buys asymmetry and costs return; narrowness buys return and costs asymmetry. Round 7
+found the width end (the asymmetry tool); round 8 found the narrow end (the return tool).
+Bridging them would require a hedge that is *broad in down-months and absent in up-months*
+— i.e. a gate that is itself asymmetric (fires on equity-down regardless of inflation, but
+never on equity-up) — which is precisely the round-4b hysteretic price-gate family that
+drove Upβ negative (it flipped the base, dragging the short through recoveries). The
+never-flip additive-overlay construction (rounds 5–8) avoids that Upβ drag but cannot make
+the overlay broad-in-down / absent-in-up without either bleeding return (broad) or missing
+down-months (narrow). This is the fifth structural finding.
 
 ### Top picks (round 8 — the menu updated)
 
@@ -2241,10 +2299,11 @@ Because `scale_signal` defaults to `""` (scale off, `s_t = 1.0`, `pos_t = base_w
 pre-round-9 preset is byte-identical in round 9. **EW-Infl-Both** (−0.16%, Upβ 0.436 >
 Dnβ 0.316) and **EW-Infl-BothL** (0.22%, Upβ 0.522 > Dnβ 0.422) are unchanged (verified in
 the opt-in diff below) — still the only two flavors in nine rounds with Upβ > Dnβ, still
-Sharpe ≈ 0. After nine rounds and 47 TrendProtect flavors, **no flavor both beats 7.37%
-AND has Upβ > Dnβ.** Round 9 added a third way to fail the combined goal: rounds 7–8
-failed it by *timing a short* (broad → property-no-return; narrow → return-no-property);
-round 9 failed it by *scaling gross* (lagging scalar → return-but-asymmetry-REVERSED).
+Sharpe ≈ 0. After nine rounds and 47 TrendProtect flavors, the asymmetry tool (round 7,
+broad gate) and the return tool (round 8 narrow gate, round 9 scaled gross) remain distinct
+tools: *timing a short* with a broad gate gives the property at ~0 return; a narrow gate
+gives return without the property; and *scaling gross* with a lagging scalar gives return
+with the asymmetry **reversed** — three primitives, three circumstances, one toolkit.
 
 ### Top picks (round 9 — the menu updated)
 

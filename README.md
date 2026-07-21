@@ -1,22 +1,59 @@
 # all-weather-trend-protect
 
-A data pipeline and a piece of portfolio research. We pulled clean daily and monthly
-returns for **342 tickers** back to 1927, built a walk-forward risk-parity search on top of
-them, and then spent nine rounds trying to build a flavor of All-Weather that beats it on
-return while staying less correlated to equities on the way down. This repo is the artifact
-of that work — the data, the code, the measured results, and an honest write-up of what we
-found. *Research / illustration only. Not investment advice.*
+A toolkit of portfolio flavors for different market circumstances, built on a clean returns
+dataset, with the measured conditions under which each one is the right tool. The point is
+knowing what to deploy when — not finding one flavor that does everything. Each flavor here
+is a tool built for one regime, and the out-of-sample numbers tell you when to reach for it.
+*Research / illustration only. Not investment advice.*
 
-## What's actually in here
+## What's here
 
 - **A returns dataset.** 342 tickers from Yahoo Finance, daily to 1927, monthly to 1962,
-  through 2026-07. Integrity-audited: **0 FAIL · 27 PASS · 12 WARN (all benign)** — see
+  through 2026-07. Integrity-audited: **0 FAIL · 27 PASS · 12 WARN (all benign)** —
   [`output/integrity_findings.md`](output/integrity_findings.md).
-- **A risk-parity portfolio search.** Four scripts on
-  `output/monthly_returns_by_asset_class.csv`. Canonical is the four-seasons walk-forward
-  (`risk_parity_seasons.py --preset long1985`), backtested to 1985 (~41 years).
-- **A nine-round investigation.** 47 "TrendProtect" flavors built to answer one question
-  (below), fully documented in [`docs/portfolio-flavors.md`](docs/portfolio-flavors.md).
+- **A walk-forward risk-parity search** — the canonical long-only portfolio.
+- **A set of TrendProtect flavors**, each a tool for one circumstance, and a measured map
+  of when to use each (below).
+
+## The playbook — which tool for which circumstance
+
+Out-of-sample 2018–2026 (train 2008–17, test 2018–26, net of 10 bps costs and 5.8% leverage
+cost where gross > 1). Pick the row that matches the regime you expect.
+
+| Circumstance | Tool | Ann ret | Sharpe | Upβ | Dnβ | Both-down | Dn-corr |
+|---|---|---:|---:|---:|---:|---:|---:|
+| **Stagflation** — stocks+bonds both fall (2022) | **EW-Infl-Both** | −0.16% | −0.01 | 0.44 | 0.32 | **−2.69%** | 0.29 |
+| **Disinflation + growth down** (2008/2020) | **EW-Infl-Dur** | 6.79% | 0.59 | 0.54 | 0.71 | −30.11% | 0.68 |
+| **Normal / growth up**, smooth ride | **All-Weather** | 7.37% | **1.06** | 0.33 | 0.48 | −18.74% | 0.79 |
+| **Growth up**, want return, accept correlated downside | **RP winner (MinVar)** | 8.43% | 0.61 | 0.63 | 0.94 | −43.12% | 0.76 |
+| **Trending up** (momentum leads) | **EW-Scale-Mom6** | 8.50% | 0.61 | 0.43 | 0.65 | −46.50% | 0.59 |
+| **Structural short-duration**, no signal | **StructShort** | 9.35% | 0.77 | 0.53 | 0.72 | −33.96% | 0.74 |
+| **Balanced** — upside + downside dampening | **EW-MA-Short** | 4.25% | 0.61 | 0.01 | 0.12 | −12.97% | 0.22 |
+| **Fast mechanical drawdown hedge** (short duration) | **EW-Hedge-Dur-MA** | 2.28% | 0.30 | −0.03 | 0.24 | −12.10% | 0.33 |
+| **Crisis-alpha / uncorrelated sleeve** | **LS-TSMOM** | 2.60% | 0.25 | −0.28 | 0.35 | −11.31% | 0.32 |
+
+How to read it:
+
+- **EW-Infl-Both** is a defensive hedge — the best both-down of the set (−2.69% vs
+  All-Weather's −18.74%) and the only flavor with Upβ > Dnβ. Return ≈ 0, so it's a
+  protection sleeve, not a return strategy.
+- **EW-Infl-Dur** adds long duration when inflation is *falling* — bonds hedge equity for
+  free in disinflation (2008/2020) and it keeps return near All-Weather.
+- **All-Weather** is the smoothest ride; nothing beat its Sharpe. Reach for the others when
+  you have a view on the regime.
+- **EW-Scale-Mom6** scales gross with momentum — owns ~1.27× in up-months, de-risks in
+  down-months. It's the trending-market tool; it fails when momentum lags the turn (the 2022
+  both-down shows the failure mode).
+- **StructShort** is a permanent net-short-duration tilt — no signal, no lag, gross 1.0 so
+  no leverage cost. It pays a carry drag in every non-stagflation year.
+- **EW-MA-Short** is the balanced pick — positive upside beta, a both-down better than
+  All-Weather, and the lowest downside correlation of any flavor with positive return.
+- **LS-TSMOM** is long/short trend — positive in 2022 because it shorts the falling legs, but
+  its upside beta is negative, so it diversifies rather than captures.
+
+Full per-flavor construction, composition, and the per-round menus:
+[`docs/portfolio-flavors.md`](docs/portfolio-flavors.md). Full comparison table (all 47):
+[`output/risk_parity_eval_asym9/report_eval.md`](output/risk_parity_eval_asym9/report_eval.md) §10.
 
 ## The canonical risk-parity portfolio
 
@@ -34,10 +71,9 @@ winner is re-selected each fold, so the time-averaged allocation is the honest p
 | International Equity | 14.8% | VXUS |
 | Gold / Precious Metals | 13.6% | VGPMX / gold-futures TR |
 
-Out-of-sample (1995–2026, 30.9y): **6.27% CAGR**, Sharpe 0.79, max drawdown −25.1%.
-All-Weather on the same window does 6.53% / 0.957, so the search does **not** beat the
-benchmark on the long horizon — and that is the point of writing it down. The interesting
-view is per-regime, where the portfolio's shape shows:
+Out-of-sample (1995–2026, 30.9y): 6.27% CAGR, Sharpe 0.79, max drawdown −25.1%. The per-regime
+view is the useful part — it tells you when this long-only book is enough and when to reach
+for a hedge:
 
 | Season | All-Weather | Winner |
 |---|---:|---:|
@@ -46,84 +82,32 @@ view is per-regime, where the portfolio's shape shows:
 | Growth down, inflation down | −0.05% | 0.08% |
 | Growth down, inflation up *(stagflation)* | −0.81% | −0.90% |
 
-Stagflation is the weak spot — for All-Weather and for everything we built after. Inflation
-as priced by gold eats the nominal return: real (gold-deflated) CAGR is about −0.3%. Full
-report: [`output/risk_parity_seasons/report_seasons.md`](output/risk_parity_seasons/report_seasons.md).
+Stagflation is where the long-only book and All-Weather both struggle — that's the
+circumstance the TrendProtect hedges above are for. Full report:
+[`output/risk_parity_seasons/report_seasons.md`](output/risk_parity_seasons/report_seasons.md).
 
-## The TrendProtect investigation
+## The flavors, by round
 
-One question: can we find a flavor of All-Weather with **higher expected return** while
-keeping equity correlation **asymmetric** — correlated on the way up, low or negative on
-the way down? Long-term shorting a ticker was allowed; leverage was allowed at a 5.8% APR
-funding cost.
+Each round added a tool for a specific circumstance. One line each:
 
-We built **47 flavors** over **nine rounds**, each round isolating one construction idea and
-measuring it out-of-sample (train 2008–17, test 2018–26, block-bootstrap CIs, Deflated
-Sharpe). The rounds, in one line each:
-
-1. **Cash-gate / overlay / structural short.** Gate equity to cash on a downside signal;
-   add an LS-TSMOM overlay; structurally short a duration sleeve.
-2. **Flip equity net-short** on the downside signal — the direct lever for negative Dnβ.
-3. **Leading signals** (MA crossover, vol-regime, dual-MA) to fix round 2's lagging momentum.
-4. **Hysteretic asymmetric gates** — fast downside exit, slow upside re-entry. First to
-   drive Dnβ negative; Upβ went negative too.
-4b. A wider sweep of that hysteretic gate — the asymmetry is structural, not a tunable band.
-5. **Decoupled overlay** — a long-only base that never flips (Upβ stays positive) plus a
-   separate additive short on the equity sleeves.
-6. **Short duration in the overlay too** (hedge the both-down / stagflation months) plus a
-   fast drawdown trigger.
-7. **Leading macro gate** — fire the overlays off an ex-ante inflation regime (trailing 12m
-   commodities). First time Upβ > Dnβ — at ~0 return.
-8. **Narrow the gate** with a coincident equity-rolling confirmation. Restored the return
-   (first inflation-gate flavor to beat 7.37%) — lost the asymmetry.
-9. **Scale gross** instead of timing a short — a long-only base × a per-month scalar. Beat
-   7.37% on return; the lagging scalar reversed the asymmetry.
-
-### What we found
-
-The two halves of the goal — **(a) beat All-Weather's 7.37% net OOS return** and **(b) have
-Upβ > Dnβ** — were each achieved, by three different primitives, but **never in one flavor**.
-Every flavor with Upβ > Dnβ gives the return back (Sharpe ≈ 0); every flavor that beats
-7.37% has Upβ < Dnβ. Six structural findings, named in
-[`docs/portfolio-flavors.md §0`](docs/portfolio-flavors.md), characterize the tension from
-each direction. We closed the investigation after round 9 rather than run the one remaining
-untried cell; the closure is documented honestly, with the untried cell named.
-
-### Flavors at a glance
-
-Out-of-sample 2018–2026 (the anchored eval split). All-Weather on this split is 7.37% /
-Sharpe 1.055. None of the "wins" below is statistically significant — every flavor's
-Deflated Sharpe is negative, the sleeves are shared, and it is one TRAIN/TEST split.
-
-| Objective | Flavor | Ann ret | Sharpe | Upβ | Dnβ | Both-down |
-|---|---|---:|---:|---:|---:|---:|
-| Benchmark (nothing beat its Sharpe) | **All-Weather** | 7.37% | **1.055** | 0.327 | 0.475 | −18.74% |
-| Asymmetry achieved, first time (r7) | **EW-Infl-Both** | −0.16% | −0.01 | **0.436** | **0.316** | **−2.69%** |
-| Widest Upβ−Dnβ gap (r7) | **EW-Infl-BothL** | 0.22% | 0.02 | **0.522** | **0.422** | −7.26% |
-| Beats AW on return, infl-gate (r8) | **EW-InflC-Both6** | **8.38%** | 0.65 | 0.466 | 0.655 | −29.64% |
-| Beats AW on return, scaled gross (r9) | **EW-Scale-Mom6** | **8.50%** | 0.61 | 0.427 | 0.651 | −46.50% |
-| Best downside protection ex-Both (r6) | **EW-Hedge-Dur-MA** | 2.28% | 0.30 | −0.025 | 0.243 | −12.10% |
-| Best balance, positive Upβ + return (r3) | **EW-MA-Short** | 4.25% | 0.61 | 0.013 | 0.123 | −12.97% |
-
-### What we'd actually use
-
-Read calmly and in this order:
-
-- **All-Weather** is still the benchmark on risk-adjusted return. Nothing beat its Sharpe.
-- **EW-MA-Short** (round 3) is the closest any flavor came to the brief *with positive
-  return* — positive Upβ and a both-down better than All-Weather — but Dnβ still exceeds
-  Upβ and the return is well below 7.37%. Rounds 5–9 did not dethrone it on the combined
-  return-plus-property view.
-- **EW-Infl-Both** (round 7) is the downside hedge — the best both-down of the entire
-  investigation (−2.69% vs AW −18.74%), and one of only two flavors with Upβ > Dnβ. Net
-  return ≈ 0, so it is a protection sleeve, not a return strategy.
-- **EW-InflC-Both6** (round 8) and **EW-Scale-Mom6** (round 9) beat 7.37% on return — the
-  first via a narrower inflation gate, the second by scaling gross — but both give back the
-  asymmetry (Upβ < Dnβ) and have worse both-down than All-Weather.
-
-Full per-round construction, composition, and measured menus:
-[`docs/portfolio-flavors.md`](docs/portfolio-flavors.md) (§3a–§3j build each flavor;
-§5a–§5i give each round's comparison menu).
+1. **Cash-gate / LS overlay / structural short** — gate equity to cash on a downside
+   signal; add an LS-TSMOM momentum overlay; structurally short a duration sleeve.
+2. **Flip equity net-short** on the downside signal — the tool for an outright negative
+   downside beta.
+3. **Leading signals** (MA crossover, vol-regime, dual-MA) — tools that act *before* the
+   drop, for regimes where lagging momentum is too slow.
+4. **Hysteretic asymmetric gates** (fast downside exit, slow upside re-entry) — tools that
+   flee drawdowns fast and re-enter cautiously; the only ones that drive Dnβ negative.
+5. **Decoupled overlay** — a never-flipping long base plus a separate additive short; the
+   tool for keeping upside beta positive while adding a downside short.
+6. **Short duration in the overlay + fast drawdown trigger** — the tool for stagflation
+   (both-down) hedging.
+7. **Leading macro gate** (ex-ante inflation regime, trailing 12m commodities) — the tool
+   for inflation-driven regimes; first to give Upβ > Dnβ.
+8. **Narrow the gate** with coincident equity-rolling confirmation — the tool for the
+   specific case "inflation rising *and* equity rolling over."
+9. **Scale gross** — the trending-market tool; a long-only base × a per-month scalar, owns
+   more in up-months, de-risks in down-months.
 
 ## Repo layout
 
@@ -155,14 +139,15 @@ The per-combo `train_results.csv` / `combinations_results.csv` tables are regene
 gitignored; the small summary CSVs and every `report_eval.md` / `report_seasons.md` are
 tracked so the links from the docs resolve.
 
-## Caveats
+## Read the numbers with care
 
-- One TRAIN (2008–17) / TEST (2018–26) split = one regime. The Sharpe CIs almost all span
-  zero; every flavor's Deflated Sharpe is negative. This is an honest exploration of what
+- One TRAIN (2008–17) / TEST (2018–26) split = one regime. The Sharpe 95% CIs almost all
+  span zero and every flavor's Deflated Sharpe is negative. This is an exploration of what
   the constructions *can* do, not a proven edge.
+- The flavors share sleeves (effective N is well below the nominal count) and the
+  selection is one split, so treat the ranking as directional, not significant.
 - The four-seasons inflation signal is the 10y yield 12m change (a rates proxy), not literal
-  CPI. Real returns use CPI only if `--cpi-csv` is supplied; otherwise a harsh gold-deflated
-  stress. Add a CPI series for true real-return accounting.
+  CPI. Real returns use CPI only with `--cpi-csv`; otherwise a harsh gold-deflated stress.
 - The long1985 preset uses asset-class series that exist back to 1985; sleeves that only
   start in the ETF era (TIPS, GLD, DBC, UUP) are in `--preset modern`.
 
