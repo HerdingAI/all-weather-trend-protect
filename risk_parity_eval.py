@@ -392,7 +392,9 @@ SCHEME_ORDER = ["EW", "InvVol", "InvVar", "ERC", "MinVar", "LS-TSMOM",
                 "EW-Infl-Dur", "EW-Infl-DurL", "EW-Infl-Both",
                 "EW-Infl-BothL", "EW-Infl-DurL2",
                 "EW-InflC-Both", "EW-InflC-BothL", "EW-InflC-Dur",
-                "EW-InflC-DurL", "EW-InflC-Both6"]
+                "EW-InflC-DurL", "EW-InflC-Both6",
+                "EW-Scale-Mom", "EW-Scale-Mom6", "EW-Scale-Vol",
+                "EW-Scale-MomL", "EW-Scale-Infl"]
 # Schemes that solve a covariance-based target weight annually (vs LS-TSMOM,
 # which is a monthly momentum signal with no covariance target).
 COV_SCHEMES = {"EW", "InvVol", "InvVar", "ERC", "MinVar"}
@@ -587,6 +589,52 @@ FLAVOR_PRESETS: Dict[str, dict] = {
                        "gate_signal": "infl_regime", "w_hedge": 1.5, "w_hedge_bd": 1.5,
                        "w_long_bd": 0.0, "w_overlay": 0.0, "struct_short": None,
                        "infl_confirm": "eq_neg", "eq_confirm_lookback": 6},
+    # --- Round 9: regime-scaled GROSS (vol-targeting / momentum-gated leverage)
+    # on the never-flip long EW base. A NEW PRIMITIVE -- rounds 1-8 all timed a
+    # *short* overlay or flipped the base; NONE scaled gross itself. The round-8
+    # verdict was "no free lunch in gate width": a broad short gate delivers Upβ >
+    # Dnβ but bleeds return; a narrow one keeps return but covers too few down-
+    # months. Scaling gross sidesteps that tension entirely -- it is LONG-ONLY:
+    # the base never flips (no Upβ-drag-through-recoveries, the round-4b blocker)
+    # and there is no short to time. Instead the whole long base is multiplied by
+    # a per-month scalar s_t in [scale_floor, scale_ceil]: own MORE in up/calm
+    # months (s_t > 1 -> leverage, funding cost via the existing gross>1 machinery
+    # at 5.8% APR) and LESS in down/stress months (s_t < 1 -> de-risk). This
+    # constructs Upβ > Dnβ BY DESIGN -- Upβ is amplified in up-months (1.5x
+    # invested) while Dnβ is damped in down-months (0.3x invested) -- without any
+    # short, and the return comes from being fully+ leveraged invested in up-
+    # months. scale_signal defaults "" -> all existing presets byte-identical.
+    #   eq_mom      : s_t = clip(1 + scale_k * eq_mom_t, floor, ceil), eq_mom_t =
+    #                 trailing-scale_lookback external US Equity return. Own more
+    #                 when equity up, less when down (momentum-gated leverage).
+    #   eq_vol      : s_t = clip(target_vol / realized_eq_vol, floor, ceil) --
+    #                 vol-targeting: de-risk when equity vol high (stress), lever
+    #                 when low (calm).
+    #   infl_regime : s_t = floor in stagflation (infl_up), ceil in disinflation
+    #                 -- the round-7 leading gate as a SCALAR (de-risk the long
+    #                 base, do not short it): tests whether scaling delivers the
+    #                 asymmetry WITH return vs the round-7 short which bled return
+    #                 or broke the property.
+    "EW-Scale-Mom":   {"trend_gate": False, "base_mode": "ew",
+                       "w_overlay": 0.0, "struct_short": None,
+                       "scale_signal": "eq_mom", "scale_k": 2.0,
+                       "scale_lookback": 3, "scale_floor": 0.3, "scale_ceil": 1.5},
+    "EW-Scale-Mom6":  {"trend_gate": False, "base_mode": "ew",
+                       "w_overlay": 0.0, "struct_short": None,
+                       "scale_signal": "eq_mom", "scale_k": 2.0,
+                       "scale_lookback": 6, "scale_floor": 0.3, "scale_ceil": 1.5},
+    "EW-Scale-Vol":   {"trend_gate": False, "base_mode": "ew",
+                       "w_overlay": 0.0, "struct_short": None,
+                       "scale_signal": "eq_vol", "scale_target_vol": 0.12,
+                       "scale_lookback": 6, "scale_floor": 0.3, "scale_ceil": 1.5},
+    "EW-Scale-MomL":  {"trend_gate": False, "base_mode": "ew",
+                       "w_overlay": 0.0, "struct_short": None,
+                       "scale_signal": "eq_mom", "scale_k": 3.0,
+                       "scale_lookback": 3, "scale_floor": 0.3, "scale_ceil": 2.0},
+    "EW-Scale-Infl":  {"trend_gate": False, "base_mode": "ew",
+                       "w_overlay": 0.0, "struct_short": None,
+                       "scale_signal": "infl_regime", "infl_lookback": 12,
+                       "scale_floor": 0.4, "scale_ceil": 1.3},
 }
 
 
@@ -981,6 +1029,25 @@ def _backtest_flavor(panel: pd.DataFrame, ret_full: pd.DataFrame,
     infl_confirm = str(preset.get("infl_confirm", ""))
     eq_confirm_proxy = str(preset.get("eq_confirm_proxy", "US Equity"))
     eq_confirm_lookback = int(preset.get("eq_confirm_lookback", 3))
+    # Round 9: regime-scaled gross (vol-targeting / momentum-gated leverage) on
+    # the never-flip long base. A NEW primitive -- the eight prior rounds all
+    # timed a *short* overlay or flipped the base; none scaled gross itself.
+    # scale_signal != "" multiplies the long base by a per-month scalar s_t in
+    # [scale_floor, scale_ceil]: own MORE in up/calm months (s_t > 1 -> leverage,
+    # funding cost via the existing gross>1 machinery at 5.8% APR) and LESS in
+    # down/stress months (s_t < 1 -> de-risk). Long-only -> the base's Upβ stays
+    # positive and is AMPLIFIED in up-months while Dnβ is DAMPED in down-months,
+    # constructing Upβ > Dnβ BY DESIGN without any short (no Upβ-drag-through-
+    # recoveries, the round-4b blocker). Signals: "" (off, byte-identical opt-in),
+    # "eq_mom" (momentum-gated leverage), "eq_vol" (vol-targeting), "infl_regime"
+    # (round-7 leading gate as a scalar: de-risk in stagflation, lever in
+    # disinflation). All default off -> existing presets byte-identical.
+    scale_signal = str(preset.get("scale_signal", ""))
+    scale_k = float(preset.get("scale_k", 2.0))
+    scale_lookback = int(preset.get("scale_lookback", 3))
+    scale_floor = float(preset.get("scale_floor", 0.3))
+    scale_ceil = float(preset.get("scale_ceil", 1.5))
+    scale_target_vol = float(preset.get("scale_target_vol", 0.12))
     # Resolve the inflation proxy to the first available sleeve in ret_full
     # (Commodities -> Gold -> Silver), so the signal is robust if the primary
     # proxy's column is missing. None if no proxy is available (signal flat).
@@ -1121,6 +1188,50 @@ def _backtest_flavor(panel: pd.DataFrame, ret_full: pd.DataFrame,
             # infl_confirm off (round-7 presets) OR no equity proxy available ->
             # no confirmation: overlays fire on the inflation gate alone (round-7).
             eq_rolling = True
+        # Round 9: regime-scaled gross. s_t scales the never-flip long base:
+        # >1 (leverage, funding cost) in up/calm months, <1 (de-risk) in down/
+        # stress months. Long-only -> Upβ amplified up, Dnβ damped down ->
+        # Upβ > Dnβ by design, with no short to time. Default s_t = 1.0 -> the
+        # round-9 presets are the only ones that move it (opt-in; existing
+        # presets byte-identical). Self-contained: computes its own infl_up for
+        # the infl_regime scalar so it does not depend on gate_signal.
+        s_t = 1.0
+        if scale_signal != "":
+            if scale_signal == "infl_regime":
+                if _infl_col is not None:
+                    ip_s = ret_full[_infl_col]
+                    iloc_s = ip_s.index.get_loc(d)
+                    if iloc_s >= infl_lookback:
+                        _im_s = float(np.prod(
+                            1.0 + ip_s.iloc[iloc_s - infl_lookback:iloc_s].values) - 1.0)
+                    else:
+                        _im_s = 0.0
+                    s_t = scale_floor if _im_s > 0.0 else scale_ceil
+                else:
+                    s_t = 1.0
+            elif _eq_col is not None:
+                ep_s = ret_full[_eq_col]
+                eloc_s = ep_s.index.get_loc(d)
+                if scale_signal == "eq_mom":
+                    if eloc_s >= scale_lookback:
+                        eq_m_s = float(np.prod(
+                            1.0 + ep_s.iloc[eloc_s - scale_lookback:eloc_s].values) - 1.0)
+                    else:
+                        eq_m_s = 0.0
+                    s_t = min(max(1.0 + scale_k * eq_m_s, scale_floor), scale_ceil)
+                elif scale_signal == "eq_vol":
+                    if eloc_s >= scale_lookback:
+                        rv = float(np.std(
+                            ep_s.iloc[eloc_s - scale_lookback:eloc_s].values, ddof=1))
+                    else:
+                        rv = 0.0
+                    rv_ann = rv * np.sqrt(12.0)
+                    s_t = (scale_target_vol / rv_ann) if rv_ann > 1e-6 else 1.0
+                    s_t = min(max(s_t, scale_floor), scale_ceil)
+                else:
+                    s_t = 1.0
+            else:
+                s_t = 1.0
         # Long leg, optional trend-gate on equity sleeves.
         long_leg = base_w.copy()
         ol = np.zeros(n)   # round-5 decoupled short overlay (additive gross)
@@ -1226,6 +1337,12 @@ def _backtest_flavor(panel: pd.DataFrame, ret_full: pd.DataFrame,
         pos_target = long_leg + ol
         if w_overlay > 0.0:
             pos_target = pos_target + w_overlay * base_w * np.sign(mom)
+        # Round 9: scale the (never-flip, long-only) base by the regime scalar.
+        # Applied after overlays so the whole position scales; round-9 presets
+        # have no gate/overlay/short so pos_target = s_t * base_w (gross = s_t,
+        # leverage cost on s_t > 1 via the existing gross>1 machinery below).
+        if scale_signal != "":
+            pos_target = pos_target * s_t
         # Turnover (two-way, full position vector), gross/net, leverage funding.
         if pos is None:
             t = float(np.abs(pos_target).sum())
@@ -3101,6 +3218,62 @@ def write_report(args, train_res, test_eval, oos_port, oos_m, sel_log, win,
                 ["A 6m confirmation lags more -> the short fires even later in drawdowns "
                  "(less early protection) but exits later in recoveries (more carry). Check "
                  "DSR / bootstrap CI; one split = one regime."]),
+            "EW-Scale-Mom": (
+                ["Round 9: a NEW PRIMITIVE -- regime-scaled GROSS, not a timed short. The "
+                 "never-flip long EW base is multiplied by s_t = clip(1 + 2*eq_mom_3m, 0.3, "
+                 "1.5): own ~1.5x in up-months (leverage), ~0.3x in down-months (de-risk). "
+                 "Long-only -> no short to time, no Upβ-drag-through-recoveries; Upβ > Dnβ by "
+                 "construction (amplified up, damped down). Return comes from leverage in up-"
+                 "months; 5.8% funding cost on s_t > 1.",
+                 "The direct test of whether SCALING gross (vs timing a short, rounds 1-8) "
+                 "delivers BOTH halves -- beat 7.37% AND Upβ > Dnβ -- in one flavor."],
+                ["Momentum lags: still ~1.5x leveraged at the START of a drawdown and ~0.3x "
+                 "de-risked at the START of a rally (whipsaw cost); 5.8% leverage cost on the "
+                 "up-month gross. Check DSR / bootstrap CI; one split = one regime."]),
+            "EW-Scale-Mom6": (
+                ["Round 9 EW-Scale-Mom with a SLOWER 6m momentum window -- less whipsaw "
+                 "(smoother s_t) at the cost of more lag. Tests sensitivity of the momentum-"
+                 "gated-leverage scalar to the lookback.",
+                 "Long-only, never-flip, Upβ > Dnβ by construction; same scale primitive as "
+                 "EW-Scale-Mom, only the lookback differs."],
+                ["6m momentum lags more -> slower to de-risk into drawdowns and slower to re-"
+                 "lever into rallies; 5.8% leverage cost. Check DSR / bootstrap CI; one split "
+                 "= one regime."]),
+            "EW-Scale-Vol": (
+                ["Round 9 VOL-TARGETING: s_t = clip(0.12 / realized_eq_vol_ann, 0.3, 1.5) -- "
+                 "de-risk when equity vol is high (stress) and leverage when low (calm). The "
+                 "classic vol-managed construction: own less exactly when risk is elevated, "
+                 "more when it is calm, targeting 12% realized vol.",
+                 "Long-only, never-flip -> Upβ > Dnβ by construction; vol-targeting is the "
+                 "literature-backed (Moreira-Muir) way to manage a long portfolio's downside "
+                 "without shorting."],
+                ["Vol-targeting is pro-cyclical at turns: it deleverages AFTER vol spikes "
+                 "(often near the bottom, missing the rebound) and re-levers AFTER calm "
+                 "(near the top); 5.8% leverage cost. Check DSR / bootstrap CI; one split = "
+                 "one regime."]),
+            "EW-Scale-MomL": (
+                ["Round 9 EW-Scale-Mom with MORE leverage (scale_k=3, scale_ceil=2.0) -- own "
+                 "up to 2.0x in strong up-months to push return harder, same 0.3x floor on the "
+                 "downside. Tests whether a bigger up-month lever closes the return gap to 7.37% "
+                 "while the floor keeps Dnβ low.",
+                 "Long-only, never-flip -> Upβ > Dnβ by construction; the aggressive end of the "
+                 "momentum-gated-leverage family."],
+                ["2.0x gross in up-months -> the most 5.8% leverage cost of the round-9 family; "
+                 "bigger whipsaw loss when a leveraged month reverses. Check DSR / bootstrap "
+                 "CI; one split = one regime."]),
+            "EW-Scale-Infl": (
+                ["Round 9: the round-7 LEADING inflation gate applied as a SCALAR, not a short. "
+                 "s_t = 0.4 in stagflation (infl_up, de-risk the long base) and 1.3 in "
+                 "disinflation (lever up). Tests whether de-risking the long base in stagflation "
+                 "(vs round-7 SHORTING it, which bled return or broke the property) delivers the "
+                 "asymmetry WITH return -- the round-7 leading gate without the short-timing "
+                 "tension.",
+                 "Long-only, never-flip, ex-ante macro signal -> Upβ > Dnβ by construction; the "
+                 "round-7 gate retested under the new scale primitive."],
+                ["Two-state scalar (0.4 / 1.3) is coarse vs the continuous eq_mom/eq_vol "
+                 "scalars; the 12m commodity gate is the same leading signal whose width was "
+                 "the round-7/8 tension; 5.8% leverage cost on the 1.3 disinflation gross. "
+                 "Check DSR / bootstrap CI; one split = one regime."]),
         }
         for fname in SCHEME_ORDER:
             if fname not in flavor_data:

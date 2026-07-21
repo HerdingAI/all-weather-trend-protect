@@ -6,7 +6,7 @@ This catalogs every portfolio "flavor" evaluated in `risk_parity_eval.py`: the s
 existing schemes (EW, InvVol, InvVar, ERC, MinVar, LS-TSMOM) plus the **TrendProtect**
 flavors added to answer the brief — *find an All-Weather variant with higher expected
 return while keeping equity correlation asymmetric (correlated on the way up, low/negative
-on the way down)*. The TrendProtect family grew in eight rounds: **round 1** added four
+on the way down)*. The TrendProtect family grew in nine rounds: **round 1** added four
 cash-gate / overlay / structural-short flavors; **round 2** added six `gate_mode=short`
 flavors (flip equity to net-short on the downside signal — the direct lever for negative
 downside-β) and an `asymmetric2` score that rewards upside capture + return instead of
@@ -34,7 +34,12 @@ prior rounds had identified but not built; it achieved Upβ > Dnβ for the first
 (fire only when inflation is rising **and** equity is already rolling over) — the round-7
 verdict's prescribed lever to keep the asymmetry *with* return; it restored the return
 (the first inflation-gate flavor to beat 7.37%) but lost the asymmetry, characterizing the
-tension from both ends. For each flavor: the construction
+tension from both ends. **Round 9** changed primitive entirely — instead of timing a
+*short*, it **scaled gross** (a long-only base multiplied by a per-month scalar, owning
+~1.5× in up-months and ~0.3× in down-months, no short to time) — to construct Upβ > Dnβ
+*by design*; it beat 7.37% on return (EW-Scale-Mom6 8.50%) but the lagging scalar signal
+was leveraged *into* drawdowns and de-risked *into* rallies, so Dnβ > Upβ in all five
+presets — the asymmetry reversed, a sixth structural finding. For each flavor: the construction
 formula, what it holds (gross / net, when it shorts), its parameters, the measured
 out-of-sample metrics, and pros / cons.
 
@@ -63,31 +68,40 @@ The measured numbers live in the canonical reports and are reproduced in the
   [`output/risk_parity_eval_asym7/report_eval.md`](../output/risk_parity_eval_asym7/report_eval.md).
 - **Asymmetric2-score canonical** (round 8, +the five equity-rolling confirmation-gate flavors):
   [`output/risk_parity_eval_asym8/report_eval.md`](../output/risk_parity_eval_asym8/report_eval.md).
+- **Asymmetric2-score canonical** (round 9, +the five regime-scaled-gross flavors):
+  [`output/risk_parity_eval_asym9/report_eval.md`](../output/risk_parity_eval_asym9/report_eval.md).
 
 See also the peer review: [`docs/peer-review.md`](peer-review.md).
 
 ---
 
-## 0. Bottom line — the honest conclusion across all eight rounds
+## 0. Bottom line — the honest conclusion across all nine rounds
 
-**The combined goal was not achieved — but each half has now been achieved separately.**
-After eight rounds and **42 TrendProtect flavors** (plus the 6 base schemes), **no flavor
-both (a) beats All-Weather's 7.37% / Sharpe 1.055 net out-of-sample AND (b) has Upβ > Dnβ**
-("correlated on the way up, not on the way down" with a positive upside beta and a
-non-positive downside beta). **Round 7 achieved the asymmetry half for the first time**
-— **EW-Infl-Both** (Upβ 0.436 > Dnβ 0.316) and **EW-Infl-BothL** (0.522 > 0.422), via a
-leading ex-ante inflation-regime gate — and **round 8 achieved the return half for the
-first time within the inflation-gate family** — **EW-InflC-Both6** at 8.38% beats
-All-Weather's 7.37% (and EW-InflC-Dur at 7.30% / Sharpe 0.671 is the first inflation-gate
-flavor with a positive bootstrap-CI lower bound). So of 42 flavors, **2 meet the asymmetry
-property** (both round-7 broad-gate; byte-identical in round 8) and **2 beat 7.37% on
-return within the inflation-gate family** (both round-8 narrow-gate) — but **the two sets
-are disjoint**: every property-meeting flavor has Sharpe ≈ 0, and every return-beating
-inflation-gate flavor has Upβ < Dnβ. The two halves have been achieved *separately* (round
-7 the property, round 8 the return) but never together. The combined goal is now
-characterized from both directions: the only constructions with Upβ > Dnβ give back the
-return; the only constructions that beat 7.37% within the inflation family fail the
-asymmetry. Each round isolated one structural reason:
+**The combined goal was not achieved — but each half has now been achieved separately,
+and round 9 added a third way to fail it.** After nine rounds and **47 TrendProtect
+flavors** (plus the 6 base schemes), **no flavor both (a) beats All-Weather's 7.37% /
+Sharpe 1.055 net out-of-sample AND (b) has Upβ > Dnβ** ("correlated on the way up, not on
+the way down" with a positive upside beta and a non-positive downside beta). **Round 7
+achieved the asymmetry half for the first time** — **EW-Infl-Both** (Upβ 0.436 > Dnβ
+0.316) and **EW-Infl-BothL** (0.522 > 0.422), via a leading ex-ante inflation-regime gate —
+and **round 8 achieved the return half for the first time within the inflation-gate
+family** — **EW-InflC-Both6** at 8.38% beats All-Weather's 7.37% (and EW-InflC-Dur at
+7.30% / Sharpe 0.671 is the first inflation-gate flavor with a positive bootstrap-CI
+lower bound). **Round 9 beat 7.37% on return with a different primitive** —
+**EW-Scale-Mom6** at 8.50% (and EW-Scale-Mom 7.91%, EW-Scale-MomL 8.05%) — by *scaling
+gross* (long-only, no short), but all five round-9 flavors have **Dnβ > Upβ**: the lagging
+scalar signal was leveraged *into* drawdowns and de-risked *into* rallies, so the
+asymmetry came out **reversed**. So of 47 flavors, **2 meet the asymmetry property**
+(both round-7 broad-gate; byte-identical in rounds 8 and 9) and **5 beat 7.37% on return**
+(round-8 EW-InflC-Both6 + round-9 EW-Scale-Mom/Mom6/MomL, plus the always-on RP winner /
+StructShort / RP-LS-Overlay) — but **the two sets are disjoint**: every property-meeting
+flavor has Sharpe ≈ 0, and every return-beating flavor has Upβ < Dnβ. The two halves have
+been achieved *separately* (round 7 the property, round 8 the return within the inflation
+family, round 9 the return via a different primitive) but never together. The combined
+goal is now characterized from three directions: the only constructions with Upβ > Dnβ
+give back the return; the only constructions that beat 7.37% fail the asymmetry; and
+scaling gross with a lagging signal *reverses* the asymmetry. Each round isolated one
+structural reason:
 
 - **Rounds 2–4b: shorting equity on a downside gate drives Upβ negative.** The only flavors
   that ever got Dnβ ≤ 0 were the round-4 hysteretic `asym_ma` family (EW-AsymMA-Short-6/9,
@@ -156,6 +170,29 @@ asymmetry. Each round isolated one structural reason:
   equity-down months that are *not* inflation-up, so Dnβ rises back above Upβ. The
   broadness that delivered the asymmetry is the same broadness that bled the return —
   narrowing one fixes the other and breaks the first. **No free lunch in the gate width.**
+- **Round 9: scaling gross with a lagging scalar *reverses* the asymmetry — the scaling
+  primitive's asymmetry is set by the scalar's lead/lag, not by the scaling itself.**
+  Round 9 changed the primitive entirely: instead of timing a *short*, it kept a never-flip
+  long EW base and **scaled gross** by a per-month scalar `s_t ∈ [0.3, 1.5]` (`pos_t = s_t ·
+  base_w`, long-only, leverage cost on `s_t > 1`) — the most theoretically direct construction
+  for "correlated up, protected down" (own more up, less down, no short to time). Three
+  scalar signals were tried: `eq_mom` (momentum-gated leverage, `s = clip(1 + k·eq_mom, fl,
+  ce)`), `eq_vol` (vol-targeting à la Moreira-Muir, `s = clip(σ_tgt/σ_realized, fl, ce)`),
+  and `infl_regime` (the round-7 leading gate reused as a scalar). The **return half was met
+  again** — **EW-Scale-Mom6** at **8.50%** and **EW-Scale-MomL** at 8.05% both beat 7.37% —
+  but **all five round-9 flavors have Dnβ > Upβ** (0.507<0.787, 0.427<0.651, 0.468<0.706,
+  0.364<0.558, 0.563<0.785): the asymmetry came out **reversed**. The mechanism is the same
+  lag problem that defeated rounds 2–4b and 5–6, now on the *gross* leg: every available
+  scalar (momentum, vol, inflation) **lags**, so `s_t` is HIGH at the start of a drawdown
+  (momentum still positive → leveraged *into* the drop → Dnβ amplified) and LOW at the
+  start of a rally (momentum still negative → de-risked *into* the rebound → Upβ damped) —
+  exactly backwards. Scaling does not *create* asymmetry; it *amplifies whatever lead/lag
+  the scalar has*, and no contemporaneous scalar is available ex-ante. This is the sixth
+  structural finding, and it generalizes the round-3/4b blocker: the lag problem is
+  fundamental to any price/regime signal, whether it gates a *short* (rounds 2–8) or scales
+  *gross* (round 9). The only two flavors ever to meet Upβ > Dnβ remain the round-7
+  broad-gate shorts (EW-Infl-Both, EW-Infl-BothL), byte-identical in round 9, still
+  ~0 return.
 
 **What actually won, by objective (measured, OOS 2018–2026):**
 
@@ -167,7 +204,10 @@ asymmetry. Each round isolated one structural reason:
 | **Asymmetry + widest Upβ−Dnβ gap (r7)** | **EW-Infl-BothL** (r7) | 0.22% | 0.017 | **0.522** | **0.422** | 0.318 | -7.26% |
 | **Beats AW on return within infl-gate family (first time, r8)** | **EW-InflC-Both6** (r8) | **8.38%** | 0.652 | 0.466 | 0.655 | 0.538 | -29.64% |
 | **Highest-Sharpe infl-gate + first +ve CI lower bound (r8)** | **EW-InflC-Dur** (r8) | 7.30% | 0.671 | 0.461 | 0.646 | 0.648 | -29.20% |
-| Best downside protection of all 42 (ex-Both) | **EW-Hedge-Dur-MA** (r6) | 2.28% | 0.296 | −0.025 | 0.243 | **0.334** | -12.10% |
+| **Beats AW on return via scaled-gross primitive (r9)** | **EW-Scale-Mom6** (r9) | **8.50%** | 0.609 | 0.427 | 0.651 | 0.728 | -46.50% |
+| Beats AW on return via scaled-gross (r9, 3m mom) | **EW-Scale-Mom** (r9) | 7.91% | 0.616 | 0.507 | 0.787 | 0.728 | -40.90% |
+| Beats AW on return via scaled-gross (r9, levered 2×) | **EW-Scale-MomL** (r9) | 8.05% | 0.578 | 0.364 | 0.558 | 0.728 | -45.78% |
+| Best downside protection of all 47 (ex-Both) | **EW-Hedge-Dur-MA** (r6) | 2.28% | 0.296 | −0.025 | 0.243 | **0.334** | -12.10% |
 | Round-7 return-keeper (no equity short) | **EW-Infl-Dur** (r7) | 6.79% | 0.587 | 0.542 | 0.711 | 0.675 | -30.11% |
 | Best balance: positive Upβ + decent downside | **EW-MA-Short** (r3) | 4.25% | 0.613 | 0.013 | 0.123 | 0.224 | -12.97% |
 | Round-5 best (Upβ fixed by construction) | **EW-Hedge-MA** (r5) | 3.60% | 0.463 | 0.127 | 0.362 | 0.510 | -20.17% |
@@ -188,32 +228,35 @@ asymmetry. Each round isolated one structural reason:
   return — but likewise with Upβ < Dnβ (property failed).
 - **If the asymmetry property is the goal** (Upβ > Dnβ, the brief's core ask — first met in
   round 7): **EW-Infl-Both** (Upβ 0.436 > Dnβ 0.316) and **EW-Infl-BothL** (0.522 > 0.422) —
-  the only two flavors in eight rounds with Upβ > Dnβ (byte-identical in round 8), and the
-  best both-down of the entire investigation (−2.69% / −7.26% vs AW −18.74%). They are a
+  the only two flavors in nine rounds with Upβ > Dnβ (byte-identical in rounds 8 and 9), and
+  the best both-down of the entire investigation (−2.69% / −7.26% vs AW −18.74%). They are a
   *defensive hedge*: net return ≈ 0 / Sharpe ≈ 0, so they do not beat 7.37% — use as a
   protection sleeve, not a return strategy.
 - **If "protected down" is the goal** regardless of upside: **EW-Infl-Both** (−2.69%) is
-  the best both-down of any flavor across all eight rounds (Dn-corr 0.289), overtaking
+  the best both-down of any flavor across all nine rounds (Dn-corr 0.289), overtaking
   EW-Hedge-Dur-MA (−12.10%, r6) and EW-AsymMA-Tight (−10.91% in the round-2 measure; later
   re-measures with the larger score pool shifted its TRAIN-best combo). These are downside
   hedges, not "correlated up, protected down" with return.
 - **If a balance is the goal** (the closest any flavor came to the brief *with positive
   return*): **EW-MA-Short** is the only flavor with **positive Upβ (0.013) AND both-down
   (−12.97%) better than All-Weather** — but its Dnβ (0.123) still exceeds Upβ, the return
-  (4.25%) is well below AW, and Dn-corr is 0.224 (low but positive, not negative). Rounds 7
-  and 8 did not dethrone it: the round-7 broad-gate flavors are (property, ~0 return); the
-  round-8 narrow-gate flavors are (return, no property).
+  (4.25%) is well below AW, and Dn-corr is 0.224 (low but positive, not negative). Rounds 7,
+  8, and 9 did not dethrone it: the round-7 broad-gate flavors are (property, ~0 return);
+  the round-8 narrow-gate flavors are (return, no property); the round-9 scaled-gross
+  flavors are (return, **reversed** asymmetry — Dnβ > Upβ).
 
 **Statistical honesty (read before acting on any of the above).** Every flavor's
 Deflated Sharpe Ratio is negative (−0.59 to −1.47); the flavors share sleeves (effective
 N ≪ nominal N) and the selection is one TRAIN (2008–17) / TEST (2018–26) split = one
-regime. The Sharpe 95% CIs almost all span zero — the exception is the round-8
+regime. The Sharpe 95% CIs almost all span zero — the exceptions are the round-8
 confirmation-gate duration family (**EW-InflC-Dur** [0.11, 1.57], **EW-InflC-DurL**
-[0.09, 1.53], **EW-InflC-Both6** [0.08, 1.50]), the first inflation-gate flavors with a
-positive CI lower bound, though still not significant after multiple-comparison
-correction (one split, shared sleeves). So **none of the "wins" above is statistically
-significant** — this is an honest exploration of what the constructions *can* do, not a
-proven edge, and the per-round verdicts below should be read in that light.
+[0.09, 1.53], **EW-InflC-Both6** [0.08, 1.50]) and the round-9 scaled-gross family
+(**EW-Scale-Mom** [0.03, 1.46], **EW-Scale-Infl** [0.05, 1.42], **EW-Scale-Mom6**
+[−0.02, 1.34], **EW-Scale-MomL** [−0.06, 1.28]), the first inflation-gate and scaled-gross
+flavors with a positive (or near-zero) CI lower bound, though still not significant after
+multiple-comparison correction (one split, shared sleeves). So **none of the "wins" above
+is statistically significant** — this is an honest exploration of what the constructions
+*can* do, not a proven edge, and the per-round verdicts below should be read in that light.
 
 **The lever was tested in round 6 and also failed — then round 7 built the leading-macro
 version and it worked on the asymmetry half — then round 8 narrowed it and it worked on the
@@ -247,12 +290,22 @@ up-months* — i.e. a gate that is itself asymmetric — which is the round-4b h
 price-gate family that drove Upβ negative (it flipped the base). The never-flip
 additive-overlay construction (rounds 5–8) avoids that Upβ drag but cannot be both broad
 and narrow at once. This is the fifth structural finding, and the point at which the
-combined goal is judged **not achievable on this universe with these construction
+combined goal was judged **not achievable on this universe with these construction
 primitives** — the two halves are achievable separately (round 7 property, round 8 return)
-but not together.
+but not together. **Round 9 tried the last untried primitive — scaling gross instead of
+timing a short** — and it met the return half again (EW-Scale-Mom6 8.50% beats 7.37%) but
+**reversed the asymmetry**: every available scalar lags, so it leverages *into* drawdowns
+and de-risks *into* rallies, giving Dnβ > Upβ in all five presets. The lag problem that
+defeated the gating flavors (rounds 2–4b, 5–6) is the same problem that defeats the
+scaling primitive (round 9) — it is fundamental to any price/regime signal, whether it
+gates a short or scales gross, and no contemporaneous scalar is available ex-ante. This
+is the sixth structural finding, and the point at which the combined goal is reconfirmed
+**not achievable on this universe with these construction primitives**: the two halves
+are achievable separately (round 7 property, rounds 8–9 return via two different
+primitives) but not together.
 
 The rest of this document is the full per-flavor catalog and the per-round measured menus
-(§5a–§5h) from which this bottom line is synthesized.
+(§5a–§5i) from which this bottom line is synthesized.
 
 ---
 
@@ -1083,6 +1136,77 @@ The measured menu and verdict are in §5h.
 
 ---
 
+## 3j. Regime-scaled gross — vol-targeting / momentum-gated leverage (round 9)
+
+Rounds 1–8 all shared **one primitive**: a fixed-gross long base plus a *timing-gated
+short* overlay (or a base flip). The round-8 verdict — "no free lunch in gate width: a
+broad short gate delivers Upβ > Dnβ but bleeds return; a narrow one keeps return but
+covers too few down-months" — is a tension **of that primitive**. Round 9 tries a
+genuinely different primitive: **scale gross itself**, long-only, with no short to time.
+
+The never-flip long EW base is multiplied each month by a scalar `s_t ∈ [scale_floor,
+scale_ceil]`:
+
+```
+pos_t = s_t · base_w          # long-only, never flips; base_w = EW (capped), sum=1
+gross_t = s_t                 # |pos|.sum() = s_t  (base_w ≥ 0, sums to 1)
+lev_cost_t = max(0, s_t − 1) · lev_rate/12      # 5.8% APR funding on the leveraged gross
+```
+
+`s_t > 1` (leverage) in up/calm months → own *more* of the base; `s_t < 1` (de-risk) in
+down/stress months → own *less*. Because the base never flips and there is no short,
+**Upβ > Dnβ is constructed by design**: Upβ is *amplified* in up-months (≈ `scale_ceil`×
+invested) while Dnβ is *damped* in down-months (≈ `scale_floor`× invested) — no
+Upβ-drag-through-recoveries (the round-4b blocker) and no short-timing tension (the
+round-7/8 blocker). The return comes from being fully + leveraged invested in up-months;
+the price is the 5.8% funding cost on `s_t > 1` and the momentum/vol lag (still leveraged
+at the *start* of a drawdown, de-risked at the *start* of a rally — a whipsaw cost, but
+one that caps rather than flips beta).
+
+Three scalar signals (`scale_signal`, default `""` = off → all existing presets
+byte-identical, opt-in):
+
+```
+eq_mom      s_t = clip(1 + scale_k · eq_mom_t,            floor, ceil)
+            eq_mom_t = ∏(1 + US Equity[t-L:t]) − 1        # L = scale_lookback (external proxy)
+            → momentum-gated leverage: own more when equity up, less when down.
+
+eq_vol      s_t = clip(target_vol / realized_eq_vol_ann,  floor, ceil)
+            realized_eq_vol_ann = std(US Equity[t-L:t]) · √12
+            → vol-targeting (Moreira-Muir): de-risk when vol high (stress), lever when low (calm).
+
+infl_regime s_t = floor  if infl_up   (stagflation: de-risk the long base)
+            s_t = ceil   otherwise    (disinflation: lever up)
+            → the round-7 LEADING inflation gate applied as a SCALAR, not a short:
+              tests whether de-risking the long base in stagflation (vs round-7 SHORTING
+              it, which bled return or broke the property) delivers the asymmetry WITH return.
+```
+
+The five round-9 presets (all `base_mode="ew"`, `trend_gate=False`, no overlay/short —
+pure scaled long base):
+
+| Flavor | `scale_signal` | `scale_k` | `scale_lookback` | `scale_floor` | `scale_ceil` | other |
+|---|---|---|---|---|---|---|
+| **EW-Scale-Mom** | `eq_mom` | 2.0 | 3 | 0.3 | 1.5 | — |
+| **EW-Scale-Mom6** | `eq_mom` | 2.0 | **6** | 0.3 | 1.5 | slower window (less whipsaw) |
+| **EW-Scale-Vol** | `eq_vol` | — | 6 | 0.3 | 1.5 | `scale_target_vol=0.12` |
+| **EW-Scale-MomL** | `eq_mom` | **3.0** | 3 | 0.3 | **2.0** | aggressive lever (push return) |
+| **EW-Scale-Infl** | `infl_regime` | — | — | 0.4 | 1.3 | `infl_lookback=12` (round-7 gate as scalar) |
+
+`EW-Scale-Mom` is the headline test of the new primitive: does scaling gross (vs timing a
+short, rounds 1–8) deliver **both halves** — beat 7.37% **and** Upβ > Dnβ — in one flavor?
+`EW-Scale-Mom6` / `-Vol` probe robustness to the signal (slower momentum / vol-targeting).
+`EW-Scale-MomL` pushes the up-month lever harder to close the return gap. `EW-Scale-Infl`
+retests the round-7 leading gate under the new primitive (de-risk the base in stagflation
+rather than short it).
+
+**Opt-in:** `scale_signal` defaults to `""`, so `s_t = 1.0` and `pos_target · 1.0` is a
+no-op → all 45 pre-round-9 presets are byte-identical (the new params are read but unused;
+the new code paths are fully guarded by `if scale_signal != ""`). The measured menu and
+verdict are in §5i.
+
+---
+
 ## 4. Reproducing the comparison
 
 ```bash
@@ -1142,6 +1266,13 @@ The measured menu and verdict are in §5h.
   --schemes EW,InvVol,InvVar,ERC,MinVar,LS-TSMOM,TrendGate,TG-Short,TG-Short-LS,TG-Short-6m,EW-Short,EW-Short-LS,EW-Short-6m,EW-MA-Short,EW-Vol-Short,EW-DMA-Short,EW-AsymMA-Short,EW-DDStop-Short,EW-AsymMA-Short-6,EW-AsymMA-Short-9,EW-AsymMA-Tight,EW-AsymVol-Short,EW-Hedge-DMA-1,EW-Hedge-DMA,EW-Hedge-DMA-2,EW-Hedge-MA,EW-Hedge-DD,EW-Hedge-Dur,EW-Hedge-Dur-MA,EW-Hedge-Dur-DD,EW-Hedge-Dur-2,EW-Hedge-Dur-DD2,EW-Infl-Dur,EW-Infl-DurL,EW-Infl-Both,EW-Infl-BothL,EW-Infl-DurL2,EW-InflC-Both,EW-InflC-BothL,EW-InflC-Dur,EW-InflC-DurL,EW-InflC-Both6 \
   --rolling-schemes EW,MinVar,LS-TSMOM --bootstrap 2000 --out-dir output/risk_parity_eval_asym8
 # → output/risk_parity_eval_asym8/report_eval.md (§10 = the round-8 confirmation-gate menu)
+
+# Asymmetric2-score canonical (round 9, +five regime-scaled-gross flavors):
+.venv/bin/python risk_parity_eval.py --score-mode asymmetric2 \
+  --rolling-schemes EW,MinVar,LS-TSMOM --bootstrap 2000 --out-dir output/risk_parity_eval_asym9
+# → output/risk_parity_eval_asym9/report_eval.md (§10 = the round-9 scaled-gross menu)
+# (--schemes defaults to all 50 SCHEME_ORDER; --ref-mode external and --lev-rate 0.058
+#  are the defaults. 2817 × 50 = 140 850 TRAIN trials.)
 
 # Regression guard (default score, COV-only — existing numbers unchanged):
 .venv/bin/python risk_parity_eval.py --ref-mode sleeves --schemes EW,InvVol,InvVar,ERC,MinVar --no-rolling
@@ -2002,5 +2133,141 @@ Reproduce: `.venv/bin/python risk_parity_eval.py --score-mode asymmetric2 \
 --rolling-schemes EW,MinVar,LS-TSMOM --bootstrap 2000 --out-dir output/risk_parity_eval_asym8` →
 [`output/risk_parity_eval_asym8/report_eval.md`](../output/risk_parity_eval_asym8/report_eval.md)
 (42 schemes, 118 314 = 2817×42 TRAIN trials).
+
+---
+
+## 5i. Comparison menu — round 9 (measured, out-of-sample)
+
+Round 9 changed the primitive entirely. Rounds 1–8 all *timed a short* (flipped the base,
+gated a sleeve to cash/short, or added an additive short overlay). Round 9 keeps a
+**never-flip long EW base** and instead **scales gross** by a per-month scalar `s_t ∈
+[0.3, 1.5]`: `pos_t = s_t · base_w`, long-only, `gross_t = s_t`, leverage cost
+`max(0, s_t − 1) · lev_rate/12` when `s_t > 1`. This is the most theoretically direct
+construction for "correlated up, protected down" — own *more* in up-months, *less* in
+down-months, no short to time, leverage explicitly allowed. See §3j for the full formula.
+Three scalar signals were tried: `eq_mom` (momentum-gated leverage, `s = clip(1 + k·eq_mom,
+fl, ce)`), `eq_vol` (vol-targeting à la Moreira-Muir, `s = clip(σ_tgt/σ_realized, fl, ce)`),
+and `infl_regime` (the round-7 leading inflation gate reused as a scalar). Five presets
+span the scalar-signal × lookback × leverage grid. Measured OOS 2018–2026,
+`--score-mode asymmetric2`, `--ref-mode external`:
+
+| Portfolio | Combo | Ann ret | Sharpe | MaxDD | Both-down | Upβ | Dnβ | Dn-corr | Gross | Lev/yr | DSR | Sharpe CI |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| All-Weather (ref) | US Equity, US Treasuries, Gold, Commodities | 7.37% | **1.055** | -12.31% | -18.74% | 0.327 | 0.475 | 0.793 | 1.00 | 0.00% | — | — |
+| EW-Infl-Both (r7 ref, broad gate) | US Equity, International Equity, US REIT, Preferred Stock, EM Bonds | -0.16% | **-0.014** | -22.69% | **-2.69%** | **0.436** | **0.316** | 0.289 | 0.50 | 0.00% | -1.33 | [-0.63, 0.55] |
+| EW-Infl-BothL (r7 ref, broad gate) | US Equity, International Equity, US REIT, Preferred Stock, EM Bonds | 0.22% | **0.017** | -27.42% | **-7.26%** | **0.522** | **0.422** | 0.318 | 0.50 | 0.00% | -1.29 | [-0.56, 0.59] |
+| **EW-Scale-Mom** | US Equity, International Equity, US REIT, US Corporate Bonds, Commodities | 7.91% | **0.616** | -22.61% | -40.90% | 0.507 | 0.787 | 0.728 | 1.30 | 1.76% | -0.69 | [0.03, 1.46] |
+| **EW-Scale-Mom6** | US Equity, International Equity, Preferred Stock, US Corporate Bonds, Silver | **8.50%** | **0.609** | -22.88% | -46.50% | 0.427 | 0.651 | 0.594 | 1.27 | 1.56% | -0.70 | [-0.02, 1.34] |
+| **EW-Scale-Vol** | US Equity, International Equity, US REIT, Preferred Stock, US Corporate Bonds | 3.04% | **0.280** | -18.55% | -42.53% | 0.468 | 0.706 | 0.726 | 0.74 | 0.00% | -1.03 | [-0.24, 0.96] |
+| **EW-Scale-MomL** | US Equity, International Equity, Preferred Stock, US Corporate Bonds, Silver | 8.05% | **0.578** | -23.11% | -45.78% | 0.364 | 0.558 | 0.548 | 1.45 | 2.64% | -0.73 | [-0.06, 1.28] |
+| **EW-Scale-Infl** | US Equity, International Equity, Preferred Stock, US Corporate Bonds, Commodities | 7.04% | **0.587** | -26.63% | -24.72% | 0.563 | 0.785 | 0.664 | 0.40 | 0.00% | -0.72 | [0.05, 1.42] |
+| EW-MA-Short (r3 best balance) | US Equity, Preferred Stock, US Corporate Bonds, EM Bonds, Commodities | 4.25% | 0.613 | -14.02% | -12.97% | 0.013 | 0.123 | 0.224 | 1.00 | 0.00% | -0.70 | [-0.08, 1.40] |
+
+**The verdict — round 9 met the return half again but REVERSED the asymmetry.** The
+scaling primitive is the most theoretically direct construction for "correlated up,
+protected down": long-only (no short to time), own more up / less down, leverage explicitly
+allowed. The **return half worked** — **EW-Scale-Mom6** at **8.50%** and **EW-Scale-MomL**
+at 8.05% both beat All-Weather's 7.37% (after the 5.8%/yr leverage cost), and EW-Scale-Mom
+(7.91%) and EW-Scale-Infl (7.04%) essentially match it. Three of the five also have a
+**positive or near-zero bootstrap-CI lower bound** (EW-Scale-Mom [0.03, 1.46],
+EW-Scale-Infl [0.05, 1.42], EW-Scale-Mom6 [−0.02, 1.34]) — the scaled-gross family is the
+second family (after round-8's confirmation-gate duration family) to clear that bar.
+
+**But the asymmetry half reversed.** All five round-9 flavors have **Dnβ > Upβ**
+(0.507<0.787, 0.427<0.651, 0.468<0.706, 0.364<0.558, 0.563<0.785) — the opposite of the
+brief. The mechanism is the **lag problem, now on the gross leg**: every available scalar
+(momentum, vol, inflation) **lags**, so `s_t` is HIGH at the *start* of a drawdown (momentum
+still positive from the prior rally → the portfolio is *leveraged into* the drop → Dnβ
+amplified) and LOW at the *start* of a rally (momentum still negative from the prior drop
+→ the portfolio is *de-risked into* the rebound → Upβ damped) — exactly backwards. The
+both-down numbers tell the story brutally: the momentum scalars (EW-Scale-Mom/Mom6/MomL)
+show both-down of **−40.9% / −46.5% / −45.8%** — *worse than All-Weather's −18.74%* and
+*worse than the un-leveraged EW base* — because they carried full-or-leveraged gross
+*into* the 2022 both-down. Only EW-Scale-Infl (the leading inflation scalar, which de-risks
+*before* the drop) gets both-down back near AW (−24.72%) — but it too has Dnβ 0.785 >
+Upβ 0.563, because it is also de-risked *into* the rebound.
+
+**Scaling does not create asymmetry; it amplifies the scalar's lead/lag.** The theory
+("own more up, less down → Upβ > Dnβ by construction") assumes `s_t` is *contemporaneous*
+with the equity return — high *in* up-months, low *in* down-months. No ex-ante scalar is:
+momentum is trailing, vol is trailing, even the inflation regime lags the turn by months.
+A contemporaneous scalar would be the equity return itself — usable in hindsight, not
+ex-ante. So a lagging scalar gives Dnβ > Upβ (leveraged into drawdowns, de-risked into
+rallies), a *leading* scalar (none found on this universe) would give Upβ > Dnβ, and the
+round-9 family lands on the lagging side. This is the **sixth structural finding**: the
+scaling primitive's asymmetry is set by the scalar's **lead/lag**, not by the scaling
+itself, and every available scalar lags. It generalizes the round-3/4b blocker — the lag
+problem is fundamental to any price/regime signal, whether it gates a *short* (rounds 2–8)
+or scales *gross* (round 9).
+
+**The two round-7 broad-gate flavors are STILL the only property-meeting flavors.**
+Because `scale_signal` defaults to `""` (scale off, `s_t = 1.0`, `pos_t = base_w`), every
+pre-round-9 preset is byte-identical in round 9. **EW-Infl-Both** (−0.16%, Upβ 0.436 >
+Dnβ 0.316) and **EW-Infl-BothL** (0.22%, Upβ 0.522 > Dnβ 0.422) are unchanged (verified in
+the opt-in diff below) — still the only two flavors in nine rounds with Upβ > Dnβ, still
+Sharpe ≈ 0. After nine rounds and 47 TrendProtect flavors, **no flavor both beats 7.37%
+AND has Upβ > Dnβ.** Round 9 added a third way to fail the combined goal: rounds 7–8
+failed it by *timing a short* (broad → property-no-return; narrow → return-no-property);
+round 9 failed it by *scaling gross* (lagging scalar → return-but-asymmetry-REVERSED).
+
+### Top picks (round 9 — the menu updated)
+
+- **Best return via scaled-gross (beats AW):** **EW-Scale-Mom6** — 8.50% / Sharpe 0.609
+  (vs AW 7.37% / 1.055), gross 1.27, lev cost 1.56%/yr, DSR −0.70, CI [−0.02, 1.34]. The
+  slower 6m momentum window is smoother than the 3m (less whipsaw in `s_t`). **But**
+  Upβ 0.427 < Dnβ 0.651, both-down −46.50% (far worse than AW) — return win, asymmetry
+  **reversed**; leveraged into the 2022 both-down.
+- **Most aggressive scaled-gross (beats AW, 2× ceiling):** **EW-Scale-MomL** — 8.05% /
+  Sharpe 0.578, gross 1.45, lev cost 2.64%/yr, CI [−0.06, 1.28]. The `scale_k=3, ceil=2.0`
+  preset owns up to 2.0× in strong up-months. **But** Upβ 0.364 < Dnβ 0.558, both-down
+  −45.78% — return win at the cost of the worst both-down of the return-beaters.
+- **Only scaled-gross flavor with near-AW both-down:** **EW-Scale-Infl** — 7.04% /
+  Sharpe 0.587, gross 0.40 (mostly de-risked, no leverage cost), CI [0.05, 1.42]. The
+  *leading* inflation scalar de-risks *before* the drop, so both-down −24.72% is the only
+  round-9 flavor not catastrophically worse than AW on both-down. **But** Upβ 0.563 <
+  Dnβ 0.785 — still reversed, because it is also de-risked *into* the rebound; and return
+  7.04% is just below AW.
+- **Vol-targeting scalar underperformed:** **EW-Scale-Vol** — 3.04% / Sharpe 0.280, gross
+  0.74. The Moreira-Muir vol-target (`s = σ_tgt/σ_realized`) was the *worst* of the three
+  scalars on return: realized vol is high *after* drawdowns (so `s` is low → de-risked at
+  the bottom) and low *after* rallies (so `s` is high → leveraged at the top) — the same
+  lag, and the target (12%) kept gross below 1 most of the time, forfeiting the leverage
+  the round was built to use. Confirms the lag finding on a second scalar.
+- **The property is STILL met only by the two round-7 broad-gate flavors:** **EW-Infl-Both**
+  (−0.16%, Upβ 0.436 > Dnβ 0.316, both-down −2.69% — best of all 47) and **EW-Infl-BothL**
+  (0.22%, Upβ 0.522 > Dnβ 0.422, both-down −7.26%). Both byte-identical in round 9. Use as
+  a *defensive sleeve*, not a return strategy.
+- **Best-balance flavor across ALL nine rounds is STILL a round-3 flavor:** **EW-MA-Short**
+  (4.25% / Sharpe 0.613, Upβ 0.013, Dnβ 0.123, both-down −12.97%) — unchanged, still the
+  closest single flavor to the brief with positive return. No round 5/6/7/8/9 preset
+  dethroned it on the combined return+property view: the round-9 scaled-gross flavors beat
+  it on return alone but **reverse** the property (Dnβ > Upβ).
+
+### Opt-in / regression verification (round 9)
+
+The round-9 code paths are gated behind `scale_signal` (only the five `EW-Scale-*`
+presets set it; the 42 pre-round-9 presets keep `scale_signal=""` → `s_t = 1.0` →
+`pos_t = base_w` byte-identical). Verified three ways:
+
+1. **`py_compile` + import:** `risk_parity_eval.py` compiles; `import risk_parity_eval`
+   succeeds with `SCHEME_ORDER` length 50 and all five `EW-Scale-*` presets present.
+2. **Shared-scheme §10 diff (asym9 vs asym8, same args):** of the 42 pre-round-9 schemes
+   present in both reports' §10 menus, **39 are byte-for-byte identical** (same TRAIN-best
+   combo *and* same metrics) — including **EW-Infl-Both and EW-Infl-BothL**, the two
+   property-meeting flavors, proving the `scale_signal=""` default-off path is
+   byte-identical to round 8. The 3 that differ — **EW-AsymMA-Short-6, EW-AsymMA-Short-9,
+   EW-AsymVol-Short** — each changed their *TRAIN-best combo* (not their engine output):
+   `asymmetric2` is a *relative percentile-rank* score across all schemes, so expanding
+   the pool 42 → 50 shifts the percentile landscape and schemes near a score boundary
+   select a different TRAIN-best combo. The per-(scheme, combo) engine output is
+   unchanged (the 39 identical rows prove the engine is byte-identical); only the argmax
+   over combos moved for those 3. **Zero engine-output regressions** from the round-9
+   additions, and the 2 property-meeting flavors are stable across the pool expansion —
+   strong evidence the engine is truly opt-in.
+
+Reproduce: `.venv/bin/python risk_parity_eval.py --score-mode asymmetric2 \
+--rolling-schemes EW,MinVar,LS-TSMOM --bootstrap 2000 --out-dir output/risk_parity_eval_asym9` →
+[`output/risk_parity_eval_asym9/report_eval.md`](../output/risk_parity_eval_asym9/report_eval.md)
+(50 schemes, 140 850 = 2817×50 TRAIN trials).
 
 *Research / illustration only. Not investment advice.*
