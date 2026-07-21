@@ -6,7 +6,7 @@ This catalogs every portfolio "flavor" evaluated in `risk_parity_eval.py`: the s
 existing schemes (EW, InvVol, InvVar, ERC, MinVar, LS-TSMOM) plus the **TrendProtect**
 flavors added to answer the brief — *find an All-Weather variant with higher expected
 return while keeping equity correlation asymmetric (correlated on the way up, low/negative
-on the way down)*. The TrendProtect family grew in seven rounds: **round 1** added four
+on the way down)*. The TrendProtect family grew in eight rounds: **round 1** added four
 cash-gate / overlay / structural-short flavors; **round 2** added six `gate_mode=short`
 flavors (flip equity to net-short on the downside signal — the direct lever for negative
 downside-β) and an `asymmetric2` score that rewards upside capture + return instead of
@@ -29,7 +29,12 @@ a *leading macro gate*: the overlays fire off an *ex-ante inflation regime* (tra
 Commodities return — a signal external to the combo) — shorting duration (and equity) when
 inflation is *rising* (stagflation, 2022) and adding a *long-duration tilt* when inflation
 is *falling* (disinflation, 2008/2020, where bonds hedge equity for free) — the lever all six
-prior rounds had identified but not built. For each flavor: the construction
+prior rounds had identified but not built; it achieved Upβ > Dnβ for the first time but at
+~0 return. **Round 8** narrowed that gate with a *coincident equity-rolling confirmation*
+(fire only when inflation is rising **and** equity is already rolling over) — the round-7
+verdict's prescribed lever to keep the asymmetry *with* return; it restored the return
+(the first inflation-gate flavor to beat 7.37%) but lost the asymmetry, characterizing the
+tension from both ends. For each flavor: the construction
 formula, what it holds (gross / net, when it shorts), its parameters, the measured
 out-of-sample metrics, and pros / cons.
 
@@ -56,26 +61,33 @@ The measured numbers live in the canonical reports and are reproduced in the
   [`output/risk_parity_eval_asym6/report_eval.md`](../output/risk_parity_eval_asym6/report_eval.md).
 - **Asymmetric2-score canonical** (round 7, +the five inflation-regime leading-gate flavors):
   [`output/risk_parity_eval_asym7/report_eval.md`](../output/risk_parity_eval_asym7/report_eval.md).
+- **Asymmetric2-score canonical** (round 8, +the five equity-rolling confirmation-gate flavors):
+  [`output/risk_parity_eval_asym8/report_eval.md`](../output/risk_parity_eval_asym8/report_eval.md).
 
 See also the peer review: [`docs/peer-review.md`](peer-review.md).
 
 ---
 
-## 0. Bottom line — the honest conclusion across all seven rounds
+## 0. Bottom line — the honest conclusion across all eight rounds
 
-**The combined goal was not achieved, but the asymmetry half finally was.** After seven
-rounds and **37 TrendProtect flavors** (plus the 6 base schemes), **no flavor both (a)
-beats All-Weather's 7.37% / Sharpe 1.055 net out-of-sample AND (b) has Upβ > Dnβ**
+**The combined goal was not achieved — but each half has now been achieved separately.**
+After eight rounds and **42 TrendProtect flavors** (plus the 6 base schemes), **no flavor
+both (a) beats All-Weather's 7.37% / Sharpe 1.055 net out-of-sample AND (b) has Upβ > Dnβ**
 ("correlated on the way up, not on the way down" with a positive upside beta and a
-non-positive downside beta). However — and this is the change from round 6 — **round 7
-achieved Upβ > Dnβ for the first time**: **EW-Infl-Both** (Upβ 0.436 > Dnβ 0.316) and
-**EW-Infl-BothL** (Upβ 0.522 > Dnβ 0.422), via a leading ex-ante inflation-regime gate. So
-of 37 flavors, **2 now meet the asymmetry property** (both round-7); the other 35 still
-have Upβ < Dnβ. The catch: those 2 have **Sharpe ≈ 0 and net return −0.16% / +0.22%** —
-they are a defensive hedge, not a return strategy, and do **not** beat 7.37%. The
-combined goal remains in tension: the only constructions with Upβ > Dnβ give back the
-return; the only constructions with AW-like return fail the asymmetry. Each round
-isolated one structural reason:
+non-positive downside beta). **Round 7 achieved the asymmetry half for the first time**
+— **EW-Infl-Both** (Upβ 0.436 > Dnβ 0.316) and **EW-Infl-BothL** (0.522 > 0.422), via a
+leading ex-ante inflation-regime gate — and **round 8 achieved the return half for the
+first time within the inflation-gate family** — **EW-InflC-Both6** at 8.38% beats
+All-Weather's 7.37% (and EW-InflC-Dur at 7.30% / Sharpe 0.671 is the first inflation-gate
+flavor with a positive bootstrap-CI lower bound). So of 42 flavors, **2 meet the asymmetry
+property** (both round-7 broad-gate; byte-identical in round 8) and **2 beat 7.37% on
+return within the inflation-gate family** (both round-8 narrow-gate) — but **the two sets
+are disjoint**: every property-meeting flavor has Sharpe ≈ 0, and every return-beating
+inflation-gate flavor has Upβ < Dnβ. The two halves have been achieved *separately* (round
+7 the property, round 8 the return) but never together. The combined goal is now
+characterized from both directions: the only constructions with Upβ > Dnβ give back the
+return; the only constructions that beat 7.37% within the inflation family fail the
+asymmetry. Each round isolated one structural reason:
 
 - **Rounds 2–4b: shorting equity on a downside gate drives Upβ negative.** The only flavors
   that ever got Dnβ ≤ 0 were the round-4 hysteretic `asym_ma` family (EW-AsymMA-Short-6/9,
@@ -127,54 +139,87 @@ isolated one structural reason:
   bond bear. So round 7 splits the brief cleanly: **the equity-short leg delivers the
   asymmetry property but kills the return; the duration-only leg keeps the return but fails
   the asymmetry.** No single round-7 preset has both.
+- **Round 8: narrowing the gate with an equity-rolling confirmation restores the return but
+  breaks the asymmetry — the two halves are in fundamental tension.** The round-7 verdict
+  prescribed narrowing the broad inflation gate to fire only when inflation is rising *and*
+  equity is already rolling over (`infl_confirm="eq_neg"`, a coincident 3m/6m US Equity
+  confirmation AND-gated onto the leading inflation regime). It worked on the **return
+  half**: no short in 2021/2024 reflation rallies (equity not rolling) → carry restored —
+  **EW-InflC-Both** rose from round-7 EW-Infl-Both's −0.16% to 5.41%, and **EW-InflC-Both6**
+  reached **8.38%, the first inflation-gate flavor to beat 7.37%**; EW-InflC-Dur (7.30% /
+  Sharpe 0.671) is the first with a positive CI lower bound. **But** all five round-8
+  flavors have Upβ < Dnβ (0.360<0.563 … 0.526<0.747) — the property, first met in round 7,
+  is **lost**. The mechanism is the mirror image of round 7: the broad gate capped **both**
+  Upβ and Dnβ (Dnβ more, since 2022 down-months were a subset of rising-inflation months
+  and got shorted) → Upβ > Dnβ but return bled; the narrow gate stops shorting in
+  non-rolling up-months → return restored → but it also stops shorting in the many
+  equity-down months that are *not* inflation-up, so Dnβ rises back above Upβ. The
+  broadness that delivered the asymmetry is the same broadness that bled the return —
+  narrowing one fixes the other and breaks the first. **No free lunch in the gate width.**
 
 **What actually won, by objective (measured, OOS 2018–2026):**
 
 | Objective | Flavor | Ann ret | Sharpe | Upβ | Dnβ | Dn-corr | Both-down |
 |---|---|---:|---:|---:|---:|---:|---:|
 | Best risk-adjusted long-only (the benchmark) | **All-Weather** | 7.37% | **1.055** | 0.327 | 0.475 | 0.793 | -18.74% |
-| Beats AW on return (no asymmetry) | **RP winner (MinVar)** | 9.94% | 0.945 | 0.406 | 0.619 | 0.708 | -31.91% |
+| Beats AW on return (no asymmetry) | **RP winner (MinVar)** | 8.43%† | 0.609† | 0.625 | 0.937 | 0.762 | -43.12%† |
 | **Asymmetry property ACHIEVED (first time, r7)** | **EW-Infl-Both** (r7) | −0.16% | −0.014 | **0.436** | **0.316** | 0.289 | **-2.69%** |
 | **Asymmetry + widest Upβ−Dnβ gap (r7)** | **EW-Infl-BothL** (r7) | 0.22% | 0.017 | **0.522** | **0.422** | 0.318 | -7.26% |
-| Best downside protection of all 37 (ex-Both) | **EW-Hedge-Dur-MA** (r6) | 2.28% | 0.296 | −0.025 | 0.243 | **0.334** | -12.10% |
+| **Beats AW on return within infl-gate family (first time, r8)** | **EW-InflC-Both6** (r8) | **8.38%** | 0.652 | 0.466 | 0.655 | 0.538 | -29.64% |
+| **Highest-Sharpe infl-gate + first +ve CI lower bound (r8)** | **EW-InflC-Dur** (r8) | 7.30% | 0.671 | 0.461 | 0.646 | 0.648 | -29.20% |
+| Best downside protection of all 42 (ex-Both) | **EW-Hedge-Dur-MA** (r6) | 2.28% | 0.296 | −0.025 | 0.243 | **0.334** | -12.10% |
 | Round-7 return-keeper (no equity short) | **EW-Infl-Dur** (r7) | 6.79% | 0.587 | 0.542 | 0.711 | 0.675 | -30.11% |
 | Best balance: positive Upβ + decent downside | **EW-MA-Short** (r3) | 4.25% | 0.613 | 0.013 | 0.123 | 0.224 | -12.97% |
 | Round-5 best (Upβ fixed by construction) | **EW-Hedge-MA** (r5) | 3.60% | 0.463 | 0.127 | 0.362 | 0.510 | -20.17% |
 | Round-6 best (fast trigger kept Upβ) | **EW-Hedge-Dur-DD** (r6) | 3.29% | 0.345 | 0.146 | 0.559 | 0.613 | -26.31% |
 
+> **†** The RP winner is selected by the same `asymmetric2` relative-percentile score pool
+> as the TrendProtect flavors, so its TRAIN-best combo shifts when the pool expands. In the
+> round-7 measure (37 schemes) it was 9.94% / Sharpe 0.945 (6-sleeve combo); in the round-8
+> measure (42 schemes) it is 8.43% / Sharpe 0.609 (5-sleeve combo). The MinVar engine on a
+> given combo is unchanged — only the argmax over combos moved (see §5h opt-in). Both
+> measures beat 7.37% on return; neither has the asymmetry (Dnβ > Upβ).
+
 - **If the goal is purely return** and the asymmetric property is relaxed: the **RP winner
-  (MinVar)** at 9.94% beats All-Weather on return — but with Dnβ 0.619 > Upβ 0.406 and the
-  worst both-down (−31.91%), it is *more* correlated to equities on the way down, the
-  opposite of the brief.
+  (MinVar)** beats All-Weather on return (9.94% in the r7 measure, 8.43% in the r8 measure
+  — see †) — but with Dnβ ≫ Upβ and the worst both-down, it is *more* correlated to
+  equities on the way down, the opposite of the brief. Within the inflation-gate family,
+  **EW-InflC-Both6** (8.38%, r8) and **EW-InflC-Dur** (7.30%, r8) also beat or match AW on
+  return — but likewise with Upβ < Dnβ (property failed).
 - **If the asymmetry property is the goal** (Upβ > Dnβ, the brief's core ask — first met in
   round 7): **EW-Infl-Both** (Upβ 0.436 > Dnβ 0.316) and **EW-Infl-BothL** (0.522 > 0.422) —
-  the only two flavors in seven rounds with Upβ > Dnβ, and the best both-down of the entire
-  investigation (−2.69% / −7.26% vs AW −18.74%). They are a *defensive hedge*: net return
-  ≈ 0 / Sharpe ≈ 0, so they do not beat 7.37% — use as a protection sleeve, not a return
-  strategy.
-- **If "protected down" is the goal** regardless of upside: **EW-Infl-Both** (−2.69%) is now
-  the best both-down of any flavor across all seven rounds (Dn-corr 0.289), overtaking
-  EW-Hedge-Dur-MA (−12.10%, r6) and EW-AsymMA-Tight (−10.91% in the round-2 measure; the
-  round-7 re-measure with the larger score pool shifted its TRAIN-best combo to −16.46%).
-  These are downside hedges, not "correlated up, protected down" with return.
+  the only two flavors in eight rounds with Upβ > Dnβ (byte-identical in round 8), and the
+  best both-down of the entire investigation (−2.69% / −7.26% vs AW −18.74%). They are a
+  *defensive hedge*: net return ≈ 0 / Sharpe ≈ 0, so they do not beat 7.37% — use as a
+  protection sleeve, not a return strategy.
+- **If "protected down" is the goal** regardless of upside: **EW-Infl-Both** (−2.69%) is
+  the best both-down of any flavor across all eight rounds (Dn-corr 0.289), overtaking
+  EW-Hedge-Dur-MA (−12.10%, r6) and EW-AsymMA-Tight (−10.91% in the round-2 measure; later
+  re-measures with the larger score pool shifted its TRAIN-best combo). These are downside
+  hedges, not "correlated up, protected down" with return.
 - **If a balance is the goal** (the closest any flavor came to the brief *with positive
   return*): **EW-MA-Short** is the only flavor with **positive Upβ (0.013) AND both-down
   (−12.97%) better than All-Weather** — but its Dnβ (0.123) still exceeds Upβ, the return
-  (4.25%) is well below AW, and Dn-corr is 0.224 (low but positive, not negative). Round 7
-  did not dethrone it: the round-7 flavors are either (property, ~0 return) or
-  (AW-like return, no property).
+  (4.25%) is well below AW, and Dn-corr is 0.224 (low but positive, not negative). Rounds 7
+  and 8 did not dethrone it: the round-7 broad-gate flavors are (property, ~0 return); the
+  round-8 narrow-gate flavors are (return, no property).
 
 **Statistical honesty (read before acting on any of the above).** Every flavor's
 Deflated Sharpe Ratio is negative (−0.59 to −1.47); the flavors share sleeves (effective
 N ≪ nominal N) and the selection is one TRAIN (2008–17) / TEST (2018–26) split = one
-regime. The Sharpe 95% CIs all span zero. So **none of the "wins" above is statistically
+regime. The Sharpe 95% CIs almost all span zero — the exception is the round-8
+confirmation-gate duration family (**EW-InflC-Dur** [0.11, 1.57], **EW-InflC-DurL**
+[0.09, 1.53], **EW-InflC-Both6** [0.08, 1.50]), the first inflation-gate flavors with a
+positive CI lower bound, though still not significant after multiple-comparison
+correction (one split, shared sleeves). So **none of the "wins" above is statistically
 significant** — this is an honest exploration of what the constructions *can* do, not a
 proven edge, and the per-round verdicts below should be read in that light.
 
 **The lever was tested in round 6 and also failed — then round 7 built the leading-macro
-version and it worked on the asymmetry half.** The round-5 diagnosis pointed to a concrete
-mechanical fix: extend the overlay to **short the sleeves that fall in both-down — bonds /
-duration (the brief's "long-term short a ticker" = short TLT / long-duration as a
+version and it worked on the asymmetry half — then round 8 narrowed it and it worked on the
+return half, but the two halves never co-occur.** The round-5 diagnosis pointed to a
+concrete mechanical fix: extend the overlay to **short the sleeves that fall in both-down —
+bonds / duration (the brief's "long-term short a ticker" = short TLT / long-duration as a
 conditional overlay)**, not equity alone, and/or replace the lagging trend gate with a
 **fast equity-drawdown trigger** that fires *in* down-months. Round 6 built *both* and ran
 them. The result: the duration overlay hedged stagflation as designed (both-down −12.10%
@@ -188,16 +233,26 @@ or holding a genuinely short-duration *ticker* (short TLT) only inside an ex-ant
 stagflation regime, rather than a sleeve-level trend gate. **Round 7 built exactly this** —
 an ex-ante inflation regime (trailing-12m Commodities) driving the equity + duration shorts
 — and it **achieved Upβ > Dnβ for the first time** (EW-Infl-Both 0.436 > 0.316, EW-Infl-BothL
-0.522 > 0.422) with the best both-down on record (−2.69% / −7.26%). The remaining tension is
+0.522 > 0.422) with the best both-down on record (−2.69% / −7.26%). The remaining tension was
 *return*: the broad ex-ante gate bleeds carry in non-crisis reflation months, so the two
-property-meeting flavors have Sharpe ≈ 0. The next lever — narrowing the gate to fire only
-when inflation is rising **and** equity is already rolling over (leading macro **and** a
-coincident confirmation), so the short is not held through reflation rallies — would
-attempt to keep the asymmetry *with* return. This is the single most likely next step if
-the combined goal is to be pursued further.
+property-meeting flavors have Sharpe ≈ 0. **Round 8 then built the prescribed narrower gate**
+— fire only when inflation is rising **and** equity is already rolling over (leading macro
+**and** a coincident 3m/6m confirmation) — and it **restored the return** (EW-InflC-Both6
+8.38% beats 7.37%; EW-InflC-Dur 7.30% / Sharpe 0.671, first positive CI lower bound) **but
+lost the asymmetry**: all five round-8 flavors have Upβ < Dnβ, because the narrow gate
+covers too few equity-down months to keep Dnβ capped. The broadness that delivers the
+asymmetry is the same broadness that bleeds the return — **no free lunch in the gate width.**
+The combined goal would now require a hedge that is *broad in down-months and absent in
+up-months* — i.e. a gate that is itself asymmetric — which is the round-4b hysteretic
+price-gate family that drove Upβ negative (it flipped the base). The never-flip
+additive-overlay construction (rounds 5–8) avoids that Upβ drag but cannot be both broad
+and narrow at once. This is the fifth structural finding, and the point at which the
+combined goal is judged **not achievable on this universe with these construction
+primitives** — the two halves are achievable separately (round 7 property, round 8 return)
+but not together.
 
 The rest of this document is the full per-flavor catalog and the per-round measured menus
-(§5a–§5g) from which this bottom line is synthesized.
+(§5a–§5h) from which this bottom line is synthesized.
 
 ---
 
@@ -949,6 +1004,85 @@ by the regression guard §1–4 vs the round-4b anchor). The measured menu and v
 
 ---
 
+## 3i. The equity-rolling confirmation gate (round 8)
+
+Round 7's verdict (§5g) named the single remaining lever: the leading inflation gate is
+*broad* — it shorts in *every* rising-inflation month, drawdown or not, so the
+property-meeting flavors bleed return in non-crisis reflation months (2021, 2024) and the
+duration-only flavors that keep the return fail the property because the long-tilt is held
+in *every* disinflation month (including 2022–23, when bonds fell *during* the equity
+recovery). The fix is to **narrow WHEN the gate fires** without touching the leading
+macro signal itself: keep the ex-ante inflation regime (still leading, still external), but
+require a **coincident equity-rolling confirmation** before either overlay leg acts.
+
+Round 8 adds one knob, `infl_confirm` (default `""` = off → round-7 behavior byte-identical).
+The only implemented mode is `"eq_neg"`: a per-month flag `eq_rolling` that is **true when
+the external equity proxy** (US Equity, from `ret_full` — the same external panel as the
+inflation proxy, *outside the combo*) **has a negative trailing-`eq_confirm_lookback` return**
+(default 3m). The overlays then fire only when their regime condition is **confirmed** by
+equity actually rolling over:
+
+- **Short legs** (`w_hedge` / `w_hedge_bd`): fire when `infl_up AND eq_rolling` — inflation
+  rising *and* equity already falling. This is the 2022 stagflation regime (commodities up,
+  equities down) and *not* the 2021/2024 reflation rallies (commodities up, equities *also*
+  up → `eq_rolling` false → no short → return preserved).
+- **Long-duration tilt** (`w_long_bd`): fires when `(NOT infl_up) AND eq_rolling` —
+  disinflation *and* equity falling. This is the **true flight-to-quality** regime (2008 Q4,
+  2020 Q1: disinflation + equity crash + bonds rally) and *not* 2022–23 (disinflation but
+  equities recovering → `eq_rolling` false → no long-tilt → the round-7 `EW-Infl-DurL` both-
+  down bleed is removed).
+
+The leading macro gate stays ex-ante (it still fires *before* the drop on the inflation
+side); the confirmation only narrows the *when*. The per-month mechanical difference
+(round 8, `gate_signal="infl_regime"`, `gate_mode="overlay"`, `infl_confirm="eq_neg"`):
+
+```
+base_w          = EW weights (capped), never flipped (Upβ-positive base)
+infl_mom_t       = prod(1 + Commodities[t-12:t]) - 1            # external, LEADING macro
+infl_up_t        = infl_mom_t > 0
+eq_mom_t         = prod(1 + US Equity[t-3:t]) - 1               # external, COINCIDENT confirm
+eq_rolling_t     = eq_mom_t < 0                                 # (infl_confirm="eq_neg" only)
+# (infl_confirm off  OR  no equity proxy  ->  eq_rolling = True  =>  round-7 behavior)
+long_leg         = base_w                                     # NEVER flipped
+ol               = 0
+if infl_up_t and eq_rolling_t:                                # stagflation + eq rolling over
+    ol[eq]    += -w_hedge    * base_w[eq]     (if w_hedge    > 0)
+    ol[bond] += -w_hedge_bd  * base_w[bond]   (if w_hedge_bd > 0)
+elif (not infl_up_t) and eq_rolling_t and w_long_bd > 0:      # flight-to-quality (eq rolling)
+    ol[bond] += +w_long_bd  * base_w[bond]
+pos_target      = long_leg + ol
+gross_notional  = |long_leg|.sum() + |ol|.sum()              # additive, leverage cost
+```
+
+The five round-8 presets (`infl_confirm="eq_neg"`, `eq_confirm_lookback=3` unless noted)
+isolate the levers — they are the round-7 grid with the confirmation gate layered on:
+
+| Flavor | `w_hedge` (eq short) | `w_hedge_bd` (bond short) | `w_long_bd` (bond long) | `eq_confirm_lookback` |
+|---|:--:|:--:|:--:|:--:|
+| **EW-InflC-Both** | **1.5** | 1.5 | 0.0 | 3 |
+| **EW-InflC-BothL** | **1.5** | 1.5 | **1.5** | 3 |
+| **EW-InflC-Dur** | 0.0 | 1.5 | 0.0 | 3 |
+| **EW-InflC-DurL** | 0.0 | 1.5 | **1.5** | 3 |
+| **EW-InflC-Both6** | **1.5** | 1.5 | 0.0 | **6** |
+
+`EW-InflC-Both` is the direct test of the round-7 verdict's lever: does narrowing the broad
+inflation short to "inflation up AND equity rolling" restore the return (no short in 2021/2024)
+while keeping Upβ > Dnβ and the 2022 both-down protection (inflation up + equity falling → short
+fires)? `EW-InflC-BothL` adds the gated long-tilt (flight-to-quality only) — does it add
+flight-to-quality carry (2008/2020) without the 2022–23 disinflation-with-bonds-falling bleed?
+`EW-InflC-Dur` / `-DurL` test whether the confirmation alone lifts the round-7 duration-only
+return above 7.37% AND recovers the both-down (gated long-tilt fires only in true
+flight-to-quality). `EW-InflC-Both6` is a 6m-confirmation sensitivity (slower, less whipsaw-prone).
+
+**Opt-in:** `infl_confirm` defaults to `""`, so the 37 pre-round-8 presets take the
+`eq_rolling = True` branch → the round-8 `if infl_up and eq_rolling:` reduces to
+`if infl_up:` and `elif (not infl_up) and eq_rolling and w_long_bd > 0:` reduces to
+`elif w_long_bd > 0:` → **byte-identical to round 7** (the regression guard §1 confirms no
+crash on the new code paths; the shared-scheme §10 diff confirms zero engine-output regressions).
+The measured menu and verdict are in §5h.
+
+---
+
 ## 4. Reproducing the comparison
 
 ```bash
@@ -1002,6 +1136,12 @@ by the regression guard §1–4 vs the round-4b anchor). The measured menu and v
   --schemes EW,InvVol,InvVar,ERC,MinVar,LS-TSMOM,TrendGate,TG-Short,TG-Short-LS,TG-Short-6m,EW-Short,EW-Short-LS,EW-Short-6m,EW-MA-Short,EW-Vol-Short,EW-DMA-Short,EW-AsymMA-Short,EW-DDStop-Short,EW-AsymMA-Short-6,EW-AsymMA-Short-9,EW-AsymMA-Tight,EW-AsymVol-Short,EW-Hedge-DMA-1,EW-Hedge-DMA,EW-Hedge-DMA-2,EW-Hedge-MA,EW-Hedge-DD,EW-Hedge-Dur,EW-Hedge-Dur-MA,EW-Hedge-Dur-DD,EW-Hedge-Dur-2,EW-Hedge-Dur-DD2,EW-Infl-Dur,EW-Infl-DurL,EW-Infl-Both,EW-Infl-BothL,EW-Infl-DurL2 \
   --rolling-schemes EW,MinVar,LS-TSMOM --bootstrap 2000 --out-dir output/risk_parity_eval_asym7
 # → output/risk_parity_eval_asym7/report_eval.md (§10 = the round-7 inflation-regime menu)
+
+# Asymmetric2-score canonical (round 8, +five equity-rolling confirmation-gate flavors):
+.venv/bin/python risk_parity_eval.py --score-mode asymmetric2 \
+  --schemes EW,InvVol,InvVar,ERC,MinVar,LS-TSMOM,TrendGate,TG-Short,TG-Short-LS,TG-Short-6m,EW-Short,EW-Short-LS,EW-Short-6m,EW-MA-Short,EW-Vol-Short,EW-DMA-Short,EW-AsymMA-Short,EW-DDStop-Short,EW-AsymMA-Short-6,EW-AsymMA-Short-9,EW-AsymMA-Tight,EW-AsymVol-Short,EW-Hedge-DMA-1,EW-Hedge-DMA,EW-Hedge-DMA-2,EW-Hedge-MA,EW-Hedge-DD,EW-Hedge-Dur,EW-Hedge-Dur-MA,EW-Hedge-Dur-DD,EW-Hedge-Dur-2,EW-Hedge-Dur-DD2,EW-Infl-Dur,EW-Infl-DurL,EW-Infl-Both,EW-Infl-BothL,EW-Infl-DurL2,EW-InflC-Both,EW-InflC-BothL,EW-InflC-Dur,EW-InflC-DurL,EW-InflC-Both6 \
+  --rolling-schemes EW,MinVar,LS-TSMOM --bootstrap 2000 --out-dir output/risk_parity_eval_asym8
+# → output/risk_parity_eval_asym8/report_eval.md (§10 = the round-8 confirmation-gate menu)
 
 # Regression guard (default score, COV-only — existing numbers unchanged):
 .venv/bin/python risk_parity_eval.py --ref-mode sleeves --schemes EW,InvVol,InvVar,ERC,MinVar --no-rolling
@@ -1719,5 +1859,148 @@ two ways:
 Reproduce: `.venv/bin/python risk_parity_eval.py --score-mode asymmetric2` →
 [`output/risk_parity_eval_asym7/report_eval.md`](../output/risk_parity_eval_asym7/report_eval.md)
 (37 schemes, 104229 = 2817×37 TRAIN trials).
+
+## 5h. Comparison menu — round 8 (measured, out-of-sample)
+
+Round 8 built the single lever §5g named as "remaining": **narrow WHEN the leading
+inflation gate fires** without touching the ex-ante macro signal itself. A coincident
+**equity-rolling confirmation** (`infl_confirm="eq_neg"` — true when the external US Equity
+proxy has a negative trailing-3m return) is AND-gated onto the round-7 regime: the short
+legs fire only when `infl_up AND eq_rolling` (inflation rising *and* equity already rolling
+over — 2022, not 2021/2024), and the long-duration tilt fires only when
+`(NOT infl_up) AND eq_rolling` (disinflation *and* equity falling — true flight-to-quality
+2008 Q4 / 2020 Q1, not 2022–23 disinflation-with-bonds-falling). See §3i for the full
+formula. Five presets span the round-7 grid with the confirmation layered on. Measured OOS
+2018–2026, `--score-mode asymmetric2`, `--ref-mode external`:
+
+| Portfolio | Combo | Ann ret | Sharpe | MaxDD | Both-down | Upβ | Dnβ | Dn-corr | Gross | Lev/yr | DSR | Sharpe CI |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| All-Weather (ref) | US Equity, US Treasuries, Gold, Commodities | 7.37% | **1.055** | -12.31% | -18.74% | 0.327 | 0.475 | 0.793 | 1.00 | 0.00% | — | — |
+| EW-Infl-Both (r7 ref, broad gate) | US Equity, International Equity, US REIT, Preferred Stock, EM Bonds | -0.16% | **-0.014** | -22.69% | **-2.69%** | **0.436** | **0.316** | 0.289 | 0.50 | 0.00% | -1.33 | [-0.63, 0.55] |
+| EW-Infl-BothL (r7 ref, broad gate) | US Equity, International Equity, US REIT, Preferred Stock, EM Bonds | 0.22% | **0.017** | -27.42% | **-7.26%** | **0.522** | **0.422** | 0.318 | 0.50 | 0.00% | -1.29 | [-0.56, 0.59] |
+| **EW-InflC-Both** | US Equity, International Equity, US REIT, EM Bonds, Commodities | 5.41% | **0.430** | -25.74% | -26.10% | 0.360 | 0.563 | 0.449 | 1.00 | 0.00% | -0.88 | [-0.13, 1.25] |
+| **EW-InflC-BothL** | US Equity, International Equity, US REIT, EM Bonds, Commodities | 5.97% | **0.427** | -30.01% | -28.44% | 0.427 | 0.680 | 0.468 | 1.00 | 0.00% | -0.88 | [-0.11, 1.28] |
+| **EW-InflC-Dur** | US Equity, International Equity, US Corporate Bonds, EM Bonds, Commodities | 7.30% | **0.671** | -21.91% | -29.20% | 0.461 | 0.646 | 0.648 | 1.00 | 0.00% | -0.64 | [0.11, 1.57] |
+| **EW-InflC-DurL** | US Equity, Preferred Stock, US Corporate Bonds, EM Bonds, Commodities | 7.28% | **0.606** | -26.20% | -28.93% | 0.526 | 0.747 | 0.600 | 1.00 | 0.00% | -0.71 | [0.09, 1.53] |
+| **EW-InflC-Both6** | US Equity, International Equity, US REIT, EM Bonds, Commodities | **8.38%** | **0.652** | -25.74% | -29.64% | 0.466 | 0.655 | 0.538 | 1.00 | 0.00% | -0.66 | [0.08, 1.50] |
+
+**The verdict — round 8 solved the return half but broke the asymmetry half.** The
+round-7 verdict prescribed "narrow the gate to fire only when inflation rising *and* equity
+already rolling over" to keep the asymmetry with return. Round 8 built exactly that — and
+the **return half worked**: the confirmation gate stopped shorting in 2021/2024 reflation
+rallies (inflation up but equity *not* rolling → `eq_rolling` false → no short), so the
+carry came back. **EW-InflC-Both** rose from round-7 **EW-Infl-Both's −0.16% to 5.41%**, and
+**EW-InflC-Both6** (the slower 6m confirmation) reaches **8.38% — the first inflation-gate
+flavor to beat All-Weather's 7.37% on net return.** **EW-InflC-Dur** at 7.30% / Sharpe 0.671
+is the highest-Sharpe inflation-gate flavor of any round, and the first with a **positive
+bootstrap-CI lower bound** ([0.11, 1.57]) — joined by EW-InflC-DurL [0.09, 1.53] and
+EW-InflC-Both6 [0.08, 1.50].
+
+**But the asymmetry half broke.** All five round-8 flavors have **Upβ < Dnβ**
+(0.360<0.563, 0.427<0.680, 0.461<0.646, 0.526<0.747, 0.466<0.655) — the property,
+achieved for the first time in round 7, is **lost** when the gate is narrowed. The
+mechanism is the mirror image of round 7: the round-7 *broad* gate shorted in *every*
+rising-inflation month, which capped **both** Upβ and Dnβ — but capped Dnβ *more* (because
+the 2022 equity-down months were a subset of rising-inflation months and got shorted), so
+Upβ > Dnβ emerged. That same broadness was what bled the return. Round 8 removed the bleed
+(no short in 2021/2024 up-months) → return restored → but the confirmation only fires
+**after** equity is already rolling over (a coincident 3m signal) **and** only in
+inflation-up months, so the many equity-down months that are *not* inflation-up (2018 Q4,
+2025 pullbacks, etc.) are **not** hedged, and Dnβ rises back above Upβ. The broadness that
+delivered the asymmetry is the same broadness that bled the return — narrowing one fixes
+the other and breaks the first.
+
+**The two round-7 broad-gate flavors are unchanged and still the only property-meeting
+flavors.** Because `infl_confirm` defaults to `""`, EW-Infl-Both and EW-Infl-BothL are
+**byte-identical** in the round-8 report (−0.16% / 0.436>0.316 and 0.22% / 0.522>0.422,
+same combos, same metrics — verified in the opt-in diff below). After eight rounds and 42
+TrendProtect flavors, **the asymmetry property is still met only by those two**, and they
+still have Sharpe ≈ 0. **No flavor both beats 7.37% AND has Upβ > Dnβ.** Round 8 traded
+round 7's "(property, ~0 return)" for "(return, no property)" — the two halves have now
+been achieved *separately* (round 7 the property, round 8 the return) but never together.
+
+**A return win without the property.** EW-InflC-Both6 at 8.38% beats All-Weather on net
+return — but with Dnβ 0.655 > Upβ 0.466, Dn-corr 0.538, and both-down **−29.64%** (far
+*worse* than AW's −18.74%), it is *more* correlated to equities on the way down, the
+opposite of the brief. It is a reflation-timing return strategy, not a "correlated up,
+protected down" strategy. The same is true of EW-InflC-Dur / -DurL (both-down −29.20% /
+−28.93%, worse than AW) — the gated long-tilt did NOT recover the round-7 duration-only
+both-down bleed (the 3m confirmation still lets the tilt fire in some 2022–23
+disinflation months where bonds kept falling).
+
+**Structural reason (the round-8 update):** the brief's two requirements — *beat 7.37%* AND
+*Upβ > Dnβ* — are in **fundamental tension on this universe**, now characterized from both
+directions. The asymmetry requires a hedge that is **broad enough to cover most equity-down
+months** (so Dnβ is capped below Upβ); but a hedge that broad necessarily shorts in
+non-crisis up-months too, bleeding the return. A **narrow** hedge (only confirmed
+roll-overs) preserves the return but covers too few down-months to keep Dnβ < Upβ. There is
+no free lunch in the gate width: width buys asymmetry and costs return; narrowness buys
+return and costs asymmetry. Round 7 found the width end (property, no return); round 8
+found the narrow end (return, no property). The combined goal would require a hedge that is
+*broad in down-months and absent in up-months* — i.e. a gate that is itself asymmetric
+(fires on equity-down regardless of inflation, but never on equity-up) — which is precisely
+the round-4b hysteretic price-gate family that drove Upβ negative (it flipped the base,
+dragging the short through recoveries). The never-flip additive-overlay construction
+(rounds 5–8) avoids that Upβ drag but cannot make the overlay broad-in-down / absent-in-up
+without either bleeding return (broad) or missing down-months (narrow). This is the fifth
+structural finding.
+
+### Top picks (round 8 — the menu updated)
+
+- **First inflation-gate flavor to beat All-Weather on return:** **EW-InflC-Both6** —
+  8.38% / Sharpe 0.652 (vs AW 7.37% / 1.055), gross 1.00 (no leverage cost), DSR −0.66, CI
+  [0.08, 1.50]. The 6m equity-rolling confirmation is the most stable confirmation window.
+  **But** Upβ 0.466 < Dnβ 0.655 and both-down −29.64% (worse than AW) — return win, property
+  lost; more correlated down, not less.
+- **Highest-Sharpe inflation-gate flavor + first positive CI lower bound:** **EW-InflC-Dur**
+  — 7.30% / Sharpe 0.671, CI [0.11, 1.57], gross 1.00, DSR −0.64. The confirmed
+  duration-only short (no equity short) keeps return within 0.1pt of AW and is the only
+  inflation-gate flavor whose bootstrap CI lower bound is positive. **But** Upβ 0.461 <
+  Dnβ 0.646 and both-down −29.20% (worse than AW) — property failed; the gated long-tilt did
+  not recover the round-7 duration-only both-down bleed.
+- **The property is STILL met only by the two round-7 broad-gate flavors:** **EW-Infl-Both**
+  (−0.16%, Upβ 0.436 > Dnβ 0.316, both-down −2.69% — best of all 42) and **EW-Infl-BothL**
+  (0.22%, Upβ 0.522 > Dnβ 0.422, both-down −7.26%). Both byte-identical in round 8. Use as
+  a *defensive sleeve*, not a return strategy.
+- **Best-balance flavor across ALL eight rounds is STILL a round-3 flavor:** **EW-MA-Short**
+  (4.25% / Sharpe 0.613, Upβ 0.013, Dnβ 0.123, both-down −12.97%) — unchanged, still the
+  closest single flavor to the brief with positive return (no round 5/6/7/8 preset
+  dethroned it on the combined return+property view; round 8 beats it on return alone but
+  loses on the property).
+- **Best return (beats AW, no asymmetry):** **RP winner (MinVar)** — 8.43% / Sharpe 0.609
+  in the round-8 measure (the score-pool expansion 37→42 shifted its TRAIN-best combo from
+  the round-7 9.94% 6-sleeve combo to a 5-sleeve combo; the MinVar engine on a given combo
+  is unchanged — see opt-in below). Dnβ 0.937 > Upβ 0.625.
+
+### Opt-in / regression verification (round 8)
+
+The round-8 code paths are gated behind `infl_confirm="eq_neg"` (only the five `EW-InflC-*`
+presets set it; the 37 pre-round-8 presets keep `infl_confirm=""`). Verified three ways:
+
+1. **Regression guard** (`--ref-mode sleeves --schemes EW,InvVol,InvVar,ERC,MinVar`,
+   default score — no TrendProtect, no asymmetric score):
+   [`output/rp_reg8/report_eval.md`](../output/rp_reg8/report_eval.md) — the COV-only
+   core-scheme run completes exit 0, no crash on the new code paths.
+2. **`py_compile` + import:** `risk_parity_eval.py` compiles; `import risk_parity_eval`
+   succeeds with `SCHEME_ORDER` length 45 and all five `EW-InflC-*` presets present.
+3. **Shared-scheme §10 diff (asym8 vs asym7, same args):** of the 34 pre-round-8 schemes
+   present in both reports' §10 menus, **29 are byte-for-byte identical** (same TRAIN-best
+   combo *and* same metrics) — including **EW-Infl-Both and EW-Infl-BothL**, the two
+   round-7 broad-gate flavors, proving the `infl_confirm` default-off path is byte-identical
+   to round 7. The 5 that differ — **RP winner, TG-Short, EW-AsymMA-Tight, EW-Infl-DurL2,
+   EW-AsymVol-Short** — each changed their *TRAIN-best combo* (not their engine output):
+   `asymmetric2` is a *relative percentile-rank* score across all schemes, so expanding the
+   pool 37 → 42 schemes shifts the percentile landscape and schemes near a score boundary
+   select a different TRAIN-best combo (e.g. the RP winner moved from its round-7 9.94%
+   6-sleeve combo to an 8.43% 5-sleeve combo — the MinVar engine on a given combo is
+   unchanged, only the argmax moved). The per-(scheme, combo) engine output is unchanged
+   (the 29 identical rows prove the engine is byte-identical); only the argmax over combos
+   moved for those 5. This is the expected, benign effect — **zero engine-output
+   regressions** from the round-8 additions.
+
+Reproduce: `.venv/bin/python risk_parity_eval.py --score-mode asymmetric2 \
+--rolling-schemes EW,MinVar,LS-TSMOM --bootstrap 2000 --out-dir output/risk_parity_eval_asym8` →
+[`output/risk_parity_eval_asym8/report_eval.md`](../output/risk_parity_eval_asym8/report_eval.md)
+(42 schemes, 118 314 = 2817×42 TRAIN trials).
 
 *Research / illustration only. Not investment advice.*

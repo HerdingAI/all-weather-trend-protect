@@ -390,7 +390,9 @@ SCHEME_ORDER = ["EW", "InvVol", "InvVar", "ERC", "MinVar", "LS-TSMOM",
                 "EW-Hedge-Dur", "EW-Hedge-Dur-MA", "EW-Hedge-Dur-DD",
                 "EW-Hedge-Dur-2", "EW-Hedge-Dur-DD2",
                 "EW-Infl-Dur", "EW-Infl-DurL", "EW-Infl-Both",
-                "EW-Infl-BothL", "EW-Infl-DurL2"]
+                "EW-Infl-BothL", "EW-Infl-DurL2",
+                "EW-InflC-Both", "EW-InflC-BothL", "EW-InflC-Dur",
+                "EW-InflC-DurL", "EW-InflC-Both6"]
 # Schemes that solve a covariance-based target weight annually (vs LS-TSMOM,
 # which is a monthly momentum signal with no covariance target).
 COV_SCHEMES = {"EW", "InvVol", "InvVar", "ERC", "MinVar"}
@@ -551,6 +553,40 @@ FLAVOR_PRESETS: Dict[str, dict] = {
     "EW-Infl-DurL2":  {"trend_gate": True, "gate_mode": "overlay", "base_mode": "ew",
                        "gate_signal": "infl_regime", "w_hedge": 0.0, "w_hedge_bd": 1.5,
                        "w_long_bd": 2.0, "w_overlay": 0.0, "struct_short": None},
+    # --- Round 8: inflation-regime + equity-rolling CONFIRMATION gate. The round-7
+    # broad inflation gate (EW-Infl-*) achieved Upβ > Dnβ for the first time but at
+    # ~0 return: it shorted in EVERY rising-inflation month, bleeding carry in non-
+    # crisis reflation rallies (2021, 2024). Round 8 narrows the gate with a COINCIDENT
+    # confirmation: the overlays fire only when the leading inflation signal is
+    # confirmed by the external equity proxy actually rolling over
+    # (infl_confirm="eq_neg", trailing-`eq_confirm_lookback` US Equity return < 0).
+    # Short leg fires on (infl_up AND eq_rolling) -> 2022 (inflation up + equity
+    # falling) protected, 2021/2024 (inflation up + equity rallying) NOT shorted ->
+    # return preserved. Long-tilt fires on ((NOT infl_up) AND eq_rolling) -> true
+    # flight-to-quality (2008 Q4, 2020 Q1: disinflation + equity crash + bonds
+    # rally) only, NOT 2022-23 disinflation-with-bonds-falling -> fixes the round-7
+    # duration-only both-down drag. Same never-flip long EW base -> Upβ positive.
+    # infl_confirm defaults "" -> the round-7 EW-Infl-* presets are byte-identical.
+    "EW-InflC-Both":  {"trend_gate": True, "gate_mode": "overlay", "base_mode": "ew",
+                       "gate_signal": "infl_regime", "w_hedge": 1.5, "w_hedge_bd": 1.5,
+                       "w_long_bd": 0.0, "w_overlay": 0.0, "struct_short": None,
+                       "infl_confirm": "eq_neg", "eq_confirm_lookback": 3},
+    "EW-InflC-BothL": {"trend_gate": True, "gate_mode": "overlay", "base_mode": "ew",
+                       "gate_signal": "infl_regime", "w_hedge": 1.5, "w_hedge_bd": 1.5,
+                       "w_long_bd": 1.5, "w_overlay": 0.0, "struct_short": None,
+                       "infl_confirm": "eq_neg", "eq_confirm_lookback": 3},
+    "EW-InflC-Dur":   {"trend_gate": True, "gate_mode": "overlay", "base_mode": "ew",
+                       "gate_signal": "infl_regime", "w_hedge": 0.0, "w_hedge_bd": 1.5,
+                       "w_long_bd": 0.0, "w_overlay": 0.0, "struct_short": None,
+                       "infl_confirm": "eq_neg", "eq_confirm_lookback": 3},
+    "EW-InflC-DurL":  {"trend_gate": True, "gate_mode": "overlay", "base_mode": "ew",
+                       "gate_signal": "infl_regime", "w_hedge": 0.0, "w_hedge_bd": 1.5,
+                       "w_long_bd": 1.5, "w_overlay": 0.0, "struct_short": None,
+                       "infl_confirm": "eq_neg", "eq_confirm_lookback": 3},
+    "EW-InflC-Both6": {"trend_gate": True, "gate_mode": "overlay", "base_mode": "ew",
+                       "gate_signal": "infl_regime", "w_hedge": 1.5, "w_hedge_bd": 1.5,
+                       "w_long_bd": 0.0, "w_overlay": 0.0, "struct_short": None,
+                       "infl_confirm": "eq_neg", "eq_confirm_lookback": 6},
 }
 
 
@@ -925,6 +961,26 @@ def _backtest_flavor(panel: pd.DataFrame, ret_full: pd.DataFrame,
     w_long_bd = float(preset.get("w_long_bd", 0.0))
     infl_proxy = str(preset.get("infl_proxy", "Commodities"))
     infl_lookback = int(preset.get("infl_lookback", lookback))
+    # Round 8: a COINCIDENT confirmation on top of the leading inflation gate.
+    # Round 7's broad inflation gate bled return in non-crisis reflation months
+    # (2021, 2024: inflation up but equity rallying) because it shorted in EVERY
+    # rising-inflation month. infl_confirm gates the overlays to fire only when
+    # the leading macro signal is CONFIRMED by equity actually rolling over:
+    #   "" (off)        -> round-7 broad gate (short on infl_up alone); existing
+    #                     round-7 presets default "" -> byte-identical (opt-in).
+    #   "eq_neg"        -> short/long-tilt fire only when the external equity
+    #                     proxy's trailing-`eq_confirm_lookback` return < 0
+    #                     (equity rolling over). Short: infl_up AND eq_rolling
+    #                     (stagflation + equity actually falling, 2022). Long-
+    #                     tilt: (NOT infl_up) AND eq_rolling (true flight-to-
+    #                     quality: disinflation + equity falling, 2008/2020) --
+    #                     NOT in 2022-23-style disinflation-with-bonds-falling,
+    #                     which is what dragged the round-7 duration-only both-
+    #                     down to -30%..-36%. The leading macro gate stays
+    #                     ex-ante; the confirmation only narrows WHEN it fires.
+    infl_confirm = str(preset.get("infl_confirm", ""))
+    eq_confirm_proxy = str(preset.get("eq_confirm_proxy", "US Equity"))
+    eq_confirm_lookback = int(preset.get("eq_confirm_lookback", 3))
     # Resolve the inflation proxy to the first available sleeve in ret_full
     # (Commodities -> Gold -> Silver), so the signal is robust if the primary
     # proxy's column is missing. None if no proxy is available (signal flat).
@@ -933,6 +989,16 @@ def _backtest_flavor(panel: pd.DataFrame, ret_full: pd.DataFrame,
         for _cand in (infl_proxy, "Commodities", "Gold", "Silver"):
             if _cand and _cand in ret_full.columns:
                 _infl_col = _cand
+                break
+    # Resolve the equity-confirmation proxy similarly (US Equity -> International
+    # Equity -> US REIT -> Preferred Stock). None if unavailable -> confirmation
+    # disabled (falls back to round-7 broad behavior even if a preset asks for it).
+    _eq_col = None
+    if ret_full is not None:
+        for _cand in (eq_confirm_proxy, "US Equity", "International Equity",
+                      "US REIT", "Preferred Stock"):
+            if _cand and _cand in ret_full.columns:
+                _eq_col = _cand
                 break
     ss = preset.get("struct_short")
     short_name = ss[0] if ss else None
@@ -1036,6 +1102,25 @@ def _backtest_flavor(panel: pd.DataFrame, ret_full: pd.DataFrame,
             infl_up = infl_mom > 0.0
         else:
             infl_up = False
+        # Round 8: coincident equity-rolling confirmation for the inflation gate.
+        # eq_rolling = True means "no confirmation required" (round-7 broad gate);
+        # the round-8 presets set infl_confirm="eq_neg" -> eq_rolling is True only
+        # when the external equity proxy's trailing-`eq_confirm_lookback` return < 0
+        # (equity actually rolling over). Computed off ret_full so it is independent
+        # of combo membership, like the inflation proxy.
+        if infl_confirm == "eq_neg" and _eq_col is not None:
+            ep = ret_full[_eq_col]
+            eloc = ep.index.get_loc(d)
+            if eloc >= eq_confirm_lookback:
+                eq_mom = float(np.prod(
+                    1.0 + ep.iloc[eloc - eq_confirm_lookback:eloc].values) - 1.0)
+            else:
+                eq_mom = 0.0
+            eq_rolling = eq_mom < 0.0
+        else:
+            # infl_confirm off (round-7 presets) OR no equity proxy available ->
+            # no confirmation: overlays fire on the inflation gate alone (round-7).
+            eq_rolling = True
         # Long leg, optional trend-gate on equity sleeves.
         long_leg = base_w.copy()
         ol = np.zeros(n)   # round-5 decoupled short overlay (additive gross)
@@ -1093,11 +1178,30 @@ def _backtest_flavor(panel: pd.DataFrame, ret_full: pd.DataFrame,
                     # user asked for: a downside hedge that fires on an ex-ante
                     # inflation regime, not a lagging price trend.
                     if infl_up:
-                        if w_hedge > 0.0:
-                            ol[is_eq] += -w_hedge * base_w[is_eq]
-                        if w_hedge_bd > 0.0:
-                            ol[is_bond] += -w_hedge_bd * base_w[is_bond]
-                    elif w_long_bd > 0.0:
+                        # Round 8: gate the stagflation short on a coincident
+                        # equity-rolling confirmation (eq_rolling). Round-7 presets
+                        # have eq_rolling=True always -> fires on infl_up alone
+                        # (byte-identical). Round-8 presets (infl_confirm="eq_neg")
+                        # fire only when inflation is up AND equity is rolling over
+                        # -> no short in 2021/2024 reflation rallies (return kept),
+                        # short in 2022 (inflation up + equity falling, both-down
+                        # protected). The leading macro gate stays ex-ante; the
+                        # confirmation only narrows WHEN the short fires.
+                        if eq_rolling:
+                            if w_hedge > 0.0:
+                                ol[is_eq] += -w_hedge * base_w[is_eq]
+                            if w_hedge_bd > 0.0:
+                                ol[is_bond] += -w_hedge_bd * base_w[is_bond]
+                    elif w_long_bd > 0.0 and eq_rolling:
+                        # Round 8: gate the long-duration tilt on the SAME equity-
+                        # rolling confirmation. Round-7 presets (eq_rolling=True)
+                        # fire on (NOT infl_up) alone (byte-identical). Round-8
+                        # presets fire only when inflation is FALLING AND equity is
+                        # rolling over -> the true flight-to-quality regime (2008
+                        # Q4, 2020 Q1: disinflation + equity crash + bonds rally),
+                        # NOT the 2022-23 disinflation-with-bonds-falling regime
+                        # that dragged the round-7 duration-only both-down to
+                        # -30%..-36%. Own the rallying bonds only when they rally.
                         ol[is_bond] += w_long_bd * base_w[is_bond]
                 else:
                     down = is_eq & (gd < 0.0)
@@ -2938,6 +3042,65 @@ def write_report(args, train_res, test_eval, oos_port, oos_m, sel_log, win,
                  "the round-7 grid; a long-bonds tilt into a reflation (inflation "
                  "re-accelerates) is unhedged by the equity leg. Check DSR / bootstrap "
                  "CI; one split = one regime."]),
+            "EW-InflC-Both": (
+                ["Round 8: the round-7 inflation gate NARROWED with a coincident equity-"
+                 "rolling confirmation (infl_confirm=eq_neg, trailing-3m US Equity < 0). "
+                 "Short BOTH equity (w_hedge=1.5) AND bonds (w_hedge_bd=1.5) only when "
+                 "inflation is RISING AND equity is rolling over -- 2022 protected, "
+                 "2021/2024 reflation rallies NOT shorted -> return preserved (the round-7 "
+                 "EW-Infl-Both bled to ~0 return by shorting every rising-inflation month).",
+                 "Never-flip long EW base -> Upβ positive. The direct test of whether "
+                 "narrowing the broad ex-ante gate keeps Upβ > Dnβ AND restores return."],
+                ["The confirmation is itself a (short, 3m) lagging signal -> the short "
+                 "fires AFTER equity has started falling, so less early-drawdown protection "
+                 "than round-7's pure inflation gate (a return-vs-early-protection trade). "
+                 "Check DSR / bootstrap CI; one split = one regime."]),
+            "EW-InflC-BothL": (
+                ["Round 8: the confirmed inflation gate PLUS a confirmed long-duration "
+                 "tilt (w_long_bd=1.5) that fires only when inflation is FALLING AND equity "
+                 "is rolling over -- the true flight-to-quality regime (2008 Q4, 2020 Q1: "
+                 "disinflation + equity crash + bonds rally), NOT 2022-23 disinflation-with-"
+                 "bonds-falling that dragged round-7 EW-Infl-DurL's both-down to -34.68%.",
+                 "Own the rallying bonds only when they rally. Never-flip long EW base -> "
+                 "Upβ positive. The most complete round-8 construction (gated short + gated "
+                 "long-tilt)."],
+                ["Most parameters / overfitting surface of the round-8 family; two-sided "
+                 "regime-timing risk both ways; the 3m equity confirmation can whipsaw near "
+                 "equity-market turns. Check DSR / bootstrap CI; one split = one regime."]),
+            "EW-InflC-Dur": (
+                ["Round 8 confirmed gate on DURATION only (no equity short): short bonds "
+                 "(w_hedge_bd=1.5) when inflation RISING AND equity rolling over, no long "
+                 "tilt. Isolates the confirmed-duration lever -- does the equity-rolling "
+                 "confirmation alone lift the round-7 EW-Infl-Dur return (6.79%) above 7.37% "
+                 "while keeping its low gross (0.90)?",
+                 "Never-flip long EW base -> Upβ positive. No equity short -> higher Upβ than "
+                 "the Both variants."],
+                ["Duration-only short cannot hedge equity-down months directly (Dnβ stays "
+                 "driven by the long equity base); the 3m confirmation narrows but does not "
+                 "eliminate regime-timing risk. Check DSR / bootstrap CI; one split = one "
+                 "regime."]),
+            "EW-InflC-DurL": (
+                ["Round 8 confirmed duration short (w_hedge_bd=1.5 when infl up AND eq "
+                 "rolling) + confirmed long-duration tilt (w_long_bd=1.5 when infl down AND "
+                 "eq rolling). The round-7 EW-Infl-DurL construction with BOTH legs gated on "
+                 "the equity-rolling confirmation -- the fix for its -34.68% both-down (the "
+                 "ungated long-tilt held in every disinflation month, including 2022-23 bonds-"
+                 "fall).",
+                 "Never-flip long EW base -> Upβ positive. Tests whether gating the long-tilt "
+                 "to true flight-to-quality recovers the duration-only both-down AND return."],
+                ["Two-sided confirmed gate -> most regime-timing risk of the duration-only "
+                 "round-8 presets; the 3m equity confirmation whipsaws near turns. Check DSR "
+                 "/ bootstrap CI; one split = one regime."]),
+            "EW-InflC-Both6": (
+                ["Round 8 EW-InflC-Both with a SLOWER 6m equity-rolling confirmation "
+                 "(eq_confirm_lookback=6) -- a more stable, less whipsaw-prone confirmation "
+                 "than the 3m default. Tests sensitivity of the confirmed gate to the "
+                 "confirmation window.",
+                 "Never-flip long EW base -> Upβ positive. Same short-both-legs construction "
+                 "as EW-InflC-Both, only the confirmation window differs."],
+                ["A 6m confirmation lags more -> the short fires even later in drawdowns "
+                 "(less early protection) but exits later in recoveries (more carry). Check "
+                 "DSR / bootstrap CI; one split = one regime."]),
         }
         for fname in SCHEME_ORDER:
             if fname not in flavor_data:
