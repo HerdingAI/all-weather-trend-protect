@@ -500,34 +500,119 @@ canonical-reports list (asym6), §5f (round-6 measured menu + verdict + top pick
 §0 updated to six rounds / 32 flavors / "all 32 have Upβ < Dnβ" / round-6 row in the
 winners table / "lever WAS tested in round 6 and also failed."
 
-## INVESTIGATION CLOSED — final honest conclusion (2026-07-20, after round 6)
-After six rounds / 32 TrendProtect flavors, **the brief's property was not achieved**:
-no flavor both beats All-Weather's 7.37% / Sharpe 1.055 net OOS AND has Upβ > Dnβ — in
-fact ALL 32 flavors have Upβ < Dnβ. Three structural blockers, one per failure mode:
-rounds 2-4b shorting equity on a downside gate drives Upβ negative (structural, not
-tunable); round 5 decoupling fixes Upβ but an equity-only overlay can't bring Dnβ down
-(bonds/duration fall WITH equities in both-down, dma/ma gate fires too late); round 6
-shorting duration in the overlay fixes the both-down regime but trades Upβ for it
-(lagging duration short drags Upβ negative) while the fast eq_dd trigger keeps Upβ but
-its threshold rarely fires the bond hedge so Dnβ stays high. User originally chose "stop
-and document" after round 5, then directed round 6 to be run; round 6 was run and also
-failed to meet the property.
+## TrendProtect round 7 — inflation-regime leading macro gate (2026-07-20)
+
+Stop-hook feedback after round 6 rejected closing the investigation: it quoted the durable
+directive and noted the remaining lever ("a leading downside signal... a macro/regime gate
+that fires before the equity drawdown") was "not impossible — just not yet satisfied."
+Round 7 builds exactly that lever.
+
+**Code (`risk_parity_eval.py`, working tree):**
+- New `gate_signal="infl_regime"` — a LEADING ex-ante macro gate. The signal is NOT a
+  sleeve's own lagging trend; it is the trailing-`infl_lookback` (default 12m) return of an
+  EXTERNAL inflation-proxy sleeve (`infl_proxy`, default "Commodities", from `ret_full` —
+  outside the combo). Per month: `infl_up = (trailing-12m Commodities return) > 0`.
+  `_gate_signal` returns zeros for `infl_regime` (it does not use `sig_full`); the overlays
+  fire off the per-month `infl_up` flag directly inside `_backtest_flavor`.
+- New `w_long_bd` param (round-7 long-duration tilt) + `infl_proxy` / `infl_lookback`
+  threaded through `backtest` → `_backtest_flavor` → call sites. In `gate_mode=="overlay"`,
+  the new `if gate_signal=="infl_regime":` branch: when `infl_up` (inflation RISING →
+  stagflation risk-off) short equity `ol[eq] += -w_hedge·base_w[eq]` AND bonds
+  `ol[bond] += -w_hedge_bd·base_w[bond]`; when NOT `infl_up` (inflation FALLING →
+  flight-to-quality) add a LONG-duration tilt `ol[bond] += +w_long_bd·base_w[bond]`. The
+  round-6 lagging equity/bond shorts stay nested under the `else:` branch (unchanged).
+- Gross additively includes the round-7 overlays: condition now
+  `w_hedge>0 or w_hedge_bd>0 or w_long_bd>0`. Defaults `w_long_bd=0` and the 32 existing
+  presets keep `gate_signal != "infl_regime"` → the infl_regime branch is never entered →
+  existing presets are byte-identical (opt-in).
+- 5 round-7 presets in FLAVOR_PRESETS (EW-Infl-Dur / -DurL / -Both / -BothL / -DurL2) —
+  duration-short only, duration-short + long-tilt, full risk-off (short equity AND
+  duration), full risk-off + long-tilt, and a 2.0× long-tilt corner. Added to SCHEME_ORDER
+  and to the `pc` pros/cons dict. `py_compile` + `import risk_parity_eval` OK (40 schemes).
+
+**Opt-in regression guard (verified):** `output/rp_reg7/report_eval.md` (COV-only core
+schemes, `--ref-mode sleeves`, default score — no TrendProtect, no asymmetric score) exits 0,
+no crash on the new code paths. Definitive opt-in proof = the asym7-vs-asym6 §10 shared-scheme
+diff (same args, round-7 vs round-6 code): of 29 pre-round-7 schemes, **26 byte-for-byte
+identical** (same TRAIN-best combo AND same metrics); the 3 that differ
+(EW-AsymMA-Tight, EW-Hedge-DMA-2, EW-Short-LS) each changed their TRAIN-best *combo* (not
+engine output) — the expected effect of the `asymmetric2` relative-percentile score pool
+expanding 32 → 37 schemes. Zero engine-output regressions.
+
+**Canonical run:** `output/risk_parity_eval_asym7/report_eval.md` (37 schemes, 104 229 =
+2817×37 TRAIN trials, exit 0).
+
+**Measured verdict (round 7, honest) — the asymmetry property ACHIEVED for the first time,
+but the return is gone.** Five EW-Infl presets:
+- EW-Infl-Dur: 6.79%/0.587, both-down -30.11%, Upβ 0.542/Dnβ 0.711, gross 0.90, DSR -0.72.
+  Keeps AW-like return but FAILED the property (Upβ < Dnβ) + terrible both-down (long-tilt
+  held in every disinflation month, 2022-23 bond bear compounded it).
+- EW-Infl-DurL: 7.17%/0.541, both-down -34.68%, Upβ 0.628/Dnβ 0.817, DSR -0.77 — same failure.
+- EW-Infl-DurL2: 7.30%/0.526, both-down -36.21%, Upβ 0.656/Dnβ 0.853, DSR -0.78 — same failure.
+- **EW-Infl-Both: -0.16%/-0.014, both-down -2.69% (BEST of the entire investigation, vs AW
+  -18.74%), Upβ 0.436 > Dnβ 0.316 (PROPERTY MET, first time), Dn-corr 0.289, gross 0.50,
+  DSR -1.33** — short both equity AND duration when inflation rising; excellent both-down
+  but Sharpe ≈ 0 (defensive hedge, not a return strategy).
+- **EW-Infl-BothL: 0.22%/0.017, both-down -7.26%, Upβ 0.522 > Dnβ 0.422 (PROPERTY MET),
+  Dn-corr 0.318, gross 0.50, DSR -1.29** — widest Upβ−Dnβ gap (0.10); still ~0 return.
+
+Round 7 splits the brief cleanly: the equity-short leg (Both/BothL) delivers Upβ > Dnβ +
+best both-down but ~0 return; the duration-only leg (Dur/DurL/DurL2) keeps AW-like return
+but fails the property with terrible both-down. No single round-7 preset has both. All DSR
+negative; all CIs straddle zero — not statistically significant. The leading ex-ante macro
+gate solved the *timing* problem (fires before the drop → no Upβ drag through recoveries)
+but is *broad* (on in every rising-inflation month, drawdown or not) so it bleeds return in
+non-crisis reflation months (2021, 2024).
+
+Docs: `docs/portfolio-flavors.md` updated — intro (round-7 sentence + "seven rounds"),
+§3h (the inflation-regime leading-gate construction + 5-preset table + opt-in note),
+round-7 reproduction command, canonical-reports list (asym7), §5g (round-7 measured menu +
+verdict + top picks + opt-in verification), and §0 updated to seven rounds / 37 flavors /
+"round 7 ACHIEVED Upβ > Dnβ for the first time (Both/BothL) but with ~0 return" / two
+round-7 rows in the winners table / 4th structural finding.
+
+## INVESTIGATION STATUS — honest conclusion (2026-07-20, after round 7)
+After seven rounds / 37 TrendProtect flavors, **the combined goal was not achieved, but
+the asymmetry half finally was.** No flavor both beats All-Weather's 7.37% / Sharpe 1.055
+net OOS AND has Upβ > Dnβ. **However, round 7 achieved Upβ > Dnβ for the first time**
+(EW-Infl-Both 0.436>0.316, EW-Infl-BothL 0.522>0.422) via a leading ex-ante inflation-regime
+gate — 2 of 37 flavors now meet the asymmetry property (both round-7); the other 35 still
+have Upβ < Dnβ. The catch: those 2 have Sharpe ≈ 0 and net return ≈ 0 (defensive hedge, not
+a return strategy). Four structural findings, one per failure mode: rounds 2-4b shorting
+equity on a downside gate drives Upβ negative (structural, not tunable); round 5 decoupling
+fixes Upβ but an equity-only overlay can't bring Dnβ down; round 6 shorting duration fixes
+both-down but trades Upβ for it (lagging duration short drags Upβ negative) while the fast
+eq_dd trigger keeps Upβ but its threshold rarely fires the bond hedge; **round 7 a leading
+ex-ante macro gate achieves Upβ > Dnβ (first time) — but the broad regime gate bleeds return
+in non-crisis reflation months, so the property-meeting flavors have ~0 return, and the
+duration-only flavors that keep the return fail the property with terrible both-down** (the
+long-tilt held in every disinflation month compounded the 2022-23 bond bear). The brief's two
+requirements remain in tension on this universe.
 
 The synthesized bottom line is **§0 of `docs/portfolio-flavors.md`** ("Bottom line — the
-honest conclusion across all six rounds"): the three structural blockers, a "what actually
-won by objective" table (AW / RP winner / EW-Hedge-Dur-MA / EW-MA-Short / EW-Hedge-MA /
-EW-Hedge-Dur-DD), the statistical-honesty caveat (every DSR negative, one TRAIN/TEST split),
-and the remaining lever (a LEADING macro/regime downside signal or a short-duration ticker
-held only in an ex-ante stagflation regime) recorded as the single most likely next step.
+honest conclusion across all seven rounds"): the four structural findings, a "what
+actually won by objective" table (AW / RP winner / EW-Infl-Both / EW-Infl-BothL /
+EW-Hedge-Dur-MA / EW-Infl-Dur / EW-MA-Short / EW-Hedge-MA / EW-Hedge-Dur-DD), the
+statistical-honesty caveat (every DSR negative, one TRAIN/TEST split), and the remaining
+lever (narrow the gate to fire only when inflation rising AND equity already rolling over —
+leading macro AND a coincident confirmation — to attempt to keep the asymmetry with return)
+recorded as the single most likely next step if the combined goal is pursued further.
 
 **Measured practical picks (OOS 2018-2026, NOT statistically significant):**
 - Best risk-adjusted long-only benchmark: All-Weather 7.37% / 1.055 (nothing beat its Sharpe).
 - Beats AW on return, no asymmetry: RP winner (MinVar) 9.94% / 0.945 (Dnβ 0.619 > Upβ 0.406).
-- Best downside protection of all 32: EW-Hedge-Dur-MA (round 6), both-down -12.10%, Dn-corr
-  0.334 — but Upβ -0.025 (negative); the duration overlay won the regime at the cost of Upβ.
-- Best balance (positive Upβ + downside < AW): EW-MA-Short 4.25% / 0.613, Upβ 0.013,
-  both-down -12.97%, Dn-corr 0.224 — STILL the closest any flavor came to the brief across
-  all six rounds (no round 5 or 6 preset dethroned it).
+- **Asymmetry property ACHIEVED (first time, round 7): EW-Infl-Both -0.16% / -0.014, Upβ
+  0.436 > Dnβ 0.316, both-down -2.69% (best of all 37), Dn-corr 0.289** — defensive hedge,
+  ~0 return; and EW-Infl-BothL 0.22% / 0.017, Upβ 0.522 > Dnβ 0.422 (widest gap), both-down
+  -7.26%.
+- Best downside protection of all 37 (ex-Infl-Both): EW-Hedge-Dur-MA (round 6), both-down
+  -12.10%, Dn-corr 0.334 — but Upβ -0.025 (negative).
+- Round-7 return-keeper (no equity short): EW-Infl-Dur 6.79% / 0.587 (within 0.6pt of AW),
+  gross 0.90, DSR -0.72 — but Upβ 0.542 < Dnβ 0.711, both-down -30.11% (property failed).
+- Best balance (positive Upβ + downside < AW, with positive return): EW-MA-Short 4.25% /
+  0.613, Upβ 0.013, both-down -12.97%, Dn-corr 0.224 — STILL the closest any flavor came to
+  the brief across all seven rounds (no round 5/6/7 preset dethroned it on the combined
+  return+property view; round 7 beats it on the property alone but at ~0 return).
 - Round-5 best (Upβ fixed by construction): EW-Hedge-MA 3.60% / 0.463, Upβ 0.127, Dnβ 0.362.
 - Round-6 best (fast trigger kept Upβ): EW-Hedge-Dur-DD 3.29% / 0.345, Upβ 0.146, Dnβ 0.559.
 

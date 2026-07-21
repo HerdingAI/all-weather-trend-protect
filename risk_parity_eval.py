@@ -388,7 +388,9 @@ SCHEME_ORDER = ["EW", "InvVol", "InvVar", "ERC", "MinVar", "LS-TSMOM",
                 "EW-Hedge-DMA-1", "EW-Hedge-DMA", "EW-Hedge-DMA-2",
                 "EW-Hedge-MA", "EW-Hedge-DD",
                 "EW-Hedge-Dur", "EW-Hedge-Dur-MA", "EW-Hedge-Dur-DD",
-                "EW-Hedge-Dur-2", "EW-Hedge-Dur-DD2"]
+                "EW-Hedge-Dur-2", "EW-Hedge-Dur-DD2",
+                "EW-Infl-Dur", "EW-Infl-DurL", "EW-Infl-Both",
+                "EW-Infl-BothL", "EW-Infl-DurL2"]
 # Schemes that solve a covariance-based target weight annually (vs LS-TSMOM,
 # which is a monthly momentum signal with no covariance target).
 COV_SCHEMES = {"EW", "InvVol", "InvVar", "ERC", "MinVar"}
@@ -524,6 +526,31 @@ FLAVOR_PRESETS: Dict[str, dict] = {
     "EW-Hedge-Dur-DD2":{"trend_gate": True, "gate_mode": "overlay", "base_mode": "ew",
                         "gate_signal": "eq_dd", "w_hedge": 1.5, "w_hedge_bd": 2.0,
                         "w_overlay": 0.0, "struct_short": None},
+    # --- Round 7: LEADING macro gate (the user's "leading downside signal" ask).
+    # Same never-flip long EW base as rounds 5-6 (Upβ stays positive), but the
+    # overlays now fire off an EX-ANTE INFLATION REGIME (trailing-12m return of
+    # the Commodities sleeve, a macro signal external to the combo) instead of
+    # a lagging sleeve-level trend. Regime-conditional and SYMMETRIC: when
+    # inflation is RISING (stagflation risk-off, 2022) short bonds (w_hedge_bd)
+    # and optionally equity (w_hedge); when inflation is FALLING (disinflation,
+    # 2008/2020) add a LONG-duration tilt (w_long_bd) to own the bonds that rally
+    # in flight-to-quality -- the regime where bonds hedge equity for free and
+    # Dnβ can go negative. gate_signal="infl_regime" is the new lever. ---
+    "EW-Infl-Dur":    {"trend_gate": True, "gate_mode": "overlay", "base_mode": "ew",
+                       "gate_signal": "infl_regime", "w_hedge": 0.0, "w_hedge_bd": 1.5,
+                       "w_long_bd": 0.0, "w_overlay": 0.0, "struct_short": None},
+    "EW-Infl-DurL":   {"trend_gate": True, "gate_mode": "overlay", "base_mode": "ew",
+                       "gate_signal": "infl_regime", "w_hedge": 0.0, "w_hedge_bd": 1.5,
+                       "w_long_bd": 1.5, "w_overlay": 0.0, "struct_short": None},
+    "EW-Infl-Both":   {"trend_gate": True, "gate_mode": "overlay", "base_mode": "ew",
+                       "gate_signal": "infl_regime", "w_hedge": 1.5, "w_hedge_bd": 1.5,
+                       "w_long_bd": 0.0, "w_overlay": 0.0, "struct_short": None},
+    "EW-Infl-BothL":  {"trend_gate": True, "gate_mode": "overlay", "base_mode": "ew",
+                       "gate_signal": "infl_regime", "w_hedge": 1.5, "w_hedge_bd": 1.5,
+                       "w_long_bd": 1.5, "w_overlay": 0.0, "struct_short": None},
+    "EW-Infl-DurL2":  {"trend_gate": True, "gate_mode": "overlay", "base_mode": "ew",
+                       "gate_signal": "infl_regime", "w_hedge": 0.0, "w_hedge_bd": 1.5,
+                       "w_long_bd": 2.0, "w_overlay": 0.0, "struct_short": None},
 }
 
 
@@ -716,6 +743,16 @@ def _gate_signal(H: np.ndarray, lookback: int, gate_signal: str,
                 mom = np.prod(1.0 + H[t - lookback:t], axis=0) - 1.0
                 sig[t] = np.where(mom > 0.0, 1.0, np.where(mom < 0.0, -1.0, 0.0))
         return sig
+    if gate_signal == "infl_regime":
+        # Round 7: the inflation-regime signal is computed in _backtest_flavor
+        # from the EXTERNAL inflation-proxy sleeve (ret_full, default
+        # "Commodities") -- a MACRO signal, not this combo's own history -- so
+        # it is available even when the proxy is not in the combo, and it LEADS
+        # equity drawdowns in the stagflation case (commodities topped before
+        # equities in 2022). The caller does not use sig_full for infl_regime;
+        # it drives the overlays off the per-month ``infl_up`` flag directly.
+        # Return zeros (no-op) so any incidental use is safe.
+        return np.zeros((T, n))
     # Price level (cumulative return index, base 1.0) for the price-based signals.
     lvl = np.cumprod(1.0 + H, axis=0)
     if gate_signal == "ma":
@@ -874,6 +911,29 @@ def _backtest_flavor(panel: pd.DataFrame, ret_full: pd.DataFrame,
     # bonds on bonds' OWN downtrend (stagflation 2022) and stays flat when bonds
     # are up (flight-to-quality 2008/2020) -- the targeted both-down fix.
     w_hedge_bd = float(preset.get("w_hedge_bd", 0.0))
+    # Round-7 inflation-regime leading gate. The duration (and optionally
+    # equity) overlay fires off an EXTERNAL inflation-proxy sleeve's trailing
+    # return (default "Commodities"), computed from ret_full -- a MACRO signal,
+    # not the combo's own trend, so it is available even when the proxy is not
+    # in the combo and LEADS equity drawdowns in the stagflation case. Regime-
+    # conditional and SYMMETRIC: short duration (and equity, w_hedge) when
+    # inflation is RISING (stagflation risk-off, 2022 -- both fall); add a
+    # LONG-duration tilt (w_long_bd) when inflation is FALLING (disinflation,
+    # 2008/2020 -- bonds rally and hedge equity for free via flight-to-quality).
+    # All default 0 -> existing presets byte-identical; only round-7 presets set
+    # them. w_long_bd is the new "amplify flight-to-quality" lever.
+    w_long_bd = float(preset.get("w_long_bd", 0.0))
+    infl_proxy = str(preset.get("infl_proxy", "Commodities"))
+    infl_lookback = int(preset.get("infl_lookback", lookback))
+    # Resolve the inflation proxy to the first available sleeve in ret_full
+    # (Commodities -> Gold -> Silver), so the signal is robust if the primary
+    # proxy's column is missing. None if no proxy is available (signal flat).
+    _infl_col = None
+    if ret_full is not None:
+        for _cand in (infl_proxy, "Commodities", "Gold", "Silver"):
+            if _cand and _cand in ret_full.columns:
+                _infl_col = _cand
+                break
     ss = preset.get("struct_short")
     short_name = ss[0] if ss else None
     w_short = float(ss[1]) if ss else 0.0
@@ -917,7 +977,8 @@ def _backtest_flavor(panel: pd.DataFrame, ret_full: pd.DataFrame,
                              dd_window=g_dd_window, dd_exit=g_dd_exit,
                              dd_entry=g_dd_entry,
                              vol_hi_mult=g_vol_hi, vol_lo_mult=g_vol_lo)
-                if (trend_gate and gate_signal != "tsmom") else None)
+                if (trend_gate and gate_signal not in ("tsmom", "infl_regime"))
+                else None)
 
     refit_set = set(_refit_dates(idx, "A"))
     base_w = None          # annual long-leg target (constant between refits)
@@ -957,6 +1018,24 @@ def _backtest_flavor(panel: pd.DataFrame, ret_full: pd.DataFrame,
             mom = np.prod(1.0 + H[loc - lookback:loc], axis=0) - 1.0
         else:
             mom = np.zeros(n)            # warm-up: no signal (flat overlay / open gate)
+        # Round 7: inflation-regime leading signal (MACRO gate). The trailing-
+        # `infl_lookback` return of the external inflation-proxy sleeve
+        # (Commodities by default, from ret_full) defines the inflation regime:
+        # infl_up = rising prices (stagflation risk-off: short duration/equity),
+        # else falling/flat (disinflation: long-duration tilt, flight-to-quality).
+        # Computed off ret_full so it is independent of combo membership. The
+        # equity base NEVER flips (Upβ preserved) -- only the overlays move.
+        if gate_signal == "infl_regime" and _infl_col is not None:
+            ip = ret_full[_infl_col]
+            iloc = ip.index.get_loc(d)
+            if iloc >= infl_lookback:
+                infl_mom = float(np.prod(
+                    1.0 + ip.iloc[iloc - infl_lookback:iloc].values) - 1.0)
+            else:
+                infl_mom = 0.0
+            infl_up = infl_mom > 0.0
+        else:
+            infl_up = False
         # Long leg, optional trend-gate on equity sleeves.
         long_leg = base_w.copy()
         ol = np.zeros(n)   # round-5 decoupled short overlay (additive gross)
@@ -998,17 +1077,41 @@ def _backtest_flavor(panel: pd.DataFrame, ret_full: pd.DataFrame,
                 # signal must be FAST-OFF in recoveries (so it does not drag
                 # the rally) -- the OPPOSITE hysteresis of round 4's asym_ma:
                 # use a symmetric signal (ma/dma) or dd_stop, NOT asym_ma.
-                down = is_eq & (gd < 0.0)
-                ol[down] = -w_hedge * base_w[down]
-                # Round 6: duration/bond overlay. Short the BOND sleeves on their
-                # OWN downside signal (gd<0), additively. In stagflation (2022) bonds
-                # trend down -> the short fires -> clips the both-down loss the
-                # equity-only overlay missed. In flight-to-quality (2008 Q4, 2020
-                # Q1) bonds trend UP -> gd>=0 -> no short -> no bleed. Reuses the
-                # same gd, so it is causal and adds no new signal plumbing.
-                if w_hedge_bd > 0.0:
-                    down_bd = is_bond & (gd < 0.0)
-                    ol[down_bd] += -w_hedge_bd * base_w[down_bd]
+                if gate_signal == "infl_regime":
+                    # Round 7: inflation-regime gate drives BOTH overlays off the
+                    # MACRO inflation signal (infl_up), NOT the combo's own lagging
+                    # trend. The long base NEVER flips -> Upβ stays positive. When
+                    # inflation is RISING (infl_up, stagflation risk-off: 2022):
+                    # short the equity sleeves (w_hedge) AND the bond sleeves
+                    # (w_hedge_bd) -- both fall in this regime, so the short clips
+                    # the both-down loss the round-5/6 equity-/bond-own-trend gates
+                    # missed or lagged. When inflation is FALLING (disinflation:
+                    # 2008 Q4, 2020 Q1): add a LONG-duration tilt (w_long_bd) so
+                    # the portfolio OWNS the bonds that rally in flight-to-quality
+                    # -- the regime where bonds hedge equity for free, dragging
+                    # Dnβ toward/below zero. This is the leading-macro lever the
+                    # user asked for: a downside hedge that fires on an ex-ante
+                    # inflation regime, not a lagging price trend.
+                    if infl_up:
+                        if w_hedge > 0.0:
+                            ol[is_eq] += -w_hedge * base_w[is_eq]
+                        if w_hedge_bd > 0.0:
+                            ol[is_bond] += -w_hedge_bd * base_w[is_bond]
+                    elif w_long_bd > 0.0:
+                        ol[is_bond] += w_long_bd * base_w[is_bond]
+                else:
+                    down = is_eq & (gd < 0.0)
+                    ol[down] = -w_hedge * base_w[down]
+                    # Round 6: duration/bond overlay. Short the BOND sleeves on
+                    # their OWN downside signal (gd<0), additively. In stagflation
+                    # (2022) bonds trend down -> the short fires -> clips the
+                    # both-down loss the equity-only overlay missed. In flight-to-
+                    # quality (2008 Q4, 2020 Q1) bonds trend UP -> gd>=0 -> no
+                    # short -> no bleed. Reuses the same gd, so it is causal and
+                    # adds no new signal plumbing.
+                    if w_hedge_bd > 0.0:
+                        down_bd = is_bond & (gd < 0.0)
+                        ol[down_bd] += -w_hedge_bd * base_w[down_bd]
             else:   # "cash": gate equity to 0 when gd<=0 (long-only, gross<=1)
                 gate = np.where(gd > 0.0, 1.0, 0.0)
                 long_leg = long_leg * np.where(is_eq, gate, 1.0)
@@ -1030,7 +1133,8 @@ def _backtest_flavor(panel: pd.DataFrame, ret_full: pd.DataFrame,
         # Additive gross for the round-5 overlay (long base + separate short
         # notional, NOT sleeve-netted) -> leverage cost on the true gross; the
         # other modes use the netted |pos_target| as before (byte-identical).
-        if gate_mode == "overlay" and (w_hedge > 0.0 or w_hedge_bd > 0.0):
+        if gate_mode == "overlay" and (w_hedge > 0.0 or w_hedge_bd > 0.0
+                                       or w_long_bd > 0.0):
             gross_notional = float(np.abs(long_leg).sum()) + float(np.abs(ol).sum())
         else:
             gross_notional = float(np.abs(pos_target).sum())
@@ -2775,6 +2879,65 @@ def write_report(args, train_res, test_eval, oos_port, oos_m, sel_log, win,
                  "highest gross / leverage cost and turnover. eq_dd's bond leg may "
                  "stay quiet outside a true bond rout. Check DSR / bootstrap CI; one "
                  "split = one regime."]),
+            "EW-Infl-Dur": (
+                ["Round-7 LEADING macro gate (the user's ask): duration overlay fires "
+                 "off an EX-ANTE inflation regime (trailing-12m Commodities return) "
+                 "instead of a lagging sleeve trend. Short bonds (w_hedge_bd=1.5) ONLY "
+                 "when inflation is RISING (stagflation risk-off, 2022 -- the both-down "
+                 "regime round 6 could only hedge with a lagging short); no long tilt.",
+                 "Never-flip long EW base -> Upβ positive. Commodities lead equities in "
+                 "the stagflation case (topped before equities in 2022).",
+                 "Isolates the duration-regime lever (no equity short, no long tilt)."],
+                ["Inflation regimes are persistent but not perfect: equity-up + "
+                 "inflation-up months (2021, 2024) take a bond-short drag on Upβ. "
+                 "Commodities are a noisy inflation proxy. Check DSR / bootstrap CI; "
+                 "one split = one regime."]),
+            "EW-Infl-DurL": (
+                ["Round-7 with the SYMMETRIC duration-regime switch: short bonds "
+                 "(w_hedge_bd=1.5) when inflation RISING + LONG-bonds tilt (w_long_bd="
+                 "1.5) when inflation FALLING -- own the bonds that rally in flight-to-"
+                 "quality (2008 Q4, 2020 Q1), the regime where bonds hedge equity for "
+                 "free and Dnβ can go negative.",
+                 "Never-flip long EW base -> Upβ positive. The leading-macro lever at "
+                 "its most complete (regime-switching duration, both directions)."],
+                ["Two-sided regime switch -> most regime-timing risk: a wrong-footed "
+                 "inflation call (e.g. long bonds into a reflation) costs on both the "
+                 "tilt and the foregone short. Additive gross both ways -> leverage cost. "
+                 "Check DSR / bootstrap CI; one split = one regime."]),
+            "EW-Infl-Both": (
+                ["Round-7 full inflation-regime RISK-OFF: when inflation RISING, short "
+                 "BOTH equity (w_hedge=1.5) AND bonds (w_hedge_bd=1.5) -- both fall in "
+                 "stagflation, so this is the direct 2022 both-down hedge the round-5/6 "
+                 "equity-/bond-own-trend gates could not time. No long tilt.",
+                 "Never-flip long EW base -> Upβ positive (the equity short is an "
+                 "additive overlay, not a base flip)."],
+                ["Shorting equity when inflation rising drags Upβ in equity-up + "
+                 "inflation-up months (2021, 2024) -- the same tension as every "
+                 "lagging equity short, now on a macro trigger. Highest gross of the "
+                 "round-7 family. Check DSR / bootstrap CI; one split = one regime."]),
+            "EW-Infl-BothL": (
+                ["Round-7 maximal: short equity AND bonds when inflation RISING + long-"
+                 "bonds tilt (w_long_bd=1.5) when FALLING. The complete leading-macro "
+                 "regime switch across all three legs (equity short, duration short, "
+                 "duration long). The most aggressive test of whether an ex-ante "
+                 "inflation gate can deliver Upβ > Dnβ.",
+                 "Never-flip long EW base -> Upβ positive."],
+                ["Most parameters / overfitting surface of the round-7 family; largest "
+                 "additive gross / leverage cost; most regime-timing risk both ways. "
+                 "Check DSR / bootstrap CI; one split = one regime."]),
+            "EW-Infl-DurL2": (
+                ["Round-7 with a BIGGER long-duration tilt (w_long_bd=2.0) when "
+                 "inflation FALLING -- push hardest on the flight-to-quality amplify "
+                 "lever (own 2.0x the base bond weight in disinflationary drawdowns) to "
+                 "drive Dnβ most negative, while keeping the 1.5x bond short in "
+                 "stagflation. No equity short (duration-only regime).",
+                 "Never-flip long EW base -> Upβ positive. Tests how much downside "
+                 "protection the long-tilt leg can buy before its leverage cost and "
+                 "reflation risk overwhelm it."],
+                ["The 2.0x long tilt is the most overfit / most leverage-cost corner of "
+                 "the round-7 grid; a long-bonds tilt into a reflation (inflation "
+                 "re-accelerates) is unhedged by the equity leg. Check DSR / bootstrap "
+                 "CI; one split = one regime."]),
         }
         for fname in SCHEME_ORDER:
             if fname not in flavor_data:
