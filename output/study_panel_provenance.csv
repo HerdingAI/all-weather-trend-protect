@@ -1,21 +1,21 @@
 exposure,span,n_months,chain,spliced
-US Total Market,1985-02->2026-07,498,VTI then VFINX,True
-US Large Cap,1985-02->2026-07,498,SPY then VFINX,True
-US Small Cap,1985-02->2026-07,498,IWM then NAESX,True
-US Small Value,1998-06->2026-07,338,VBR then VISVX,True
-Intl Developed,1985-02->2026-07,498,EFA then VTRIX,True
-World ex-US,1996-05->2026-07,363,VXUS then VGTSX,True
+US Total Market,1985-02->2026-07,498,VFINX then VTI,True
+US Large Cap,1985-02->2026-07,498,VFINX then SPY,True
+US Small Cap,1985-02->2026-07,498,NAESX then IWM,True
+US Small Value,1998-06->2026-07,338,VISVX then VBR,True
+Intl Developed,1985-02->2026-07,498,VTRIX then EFA,True
+World ex-US,1996-05->2026-07,363,VGTSX then VXUS,True
 Emerging Markets,2003-05->2026-07,279,EEM,False
-Long Treasuries,1986-06->2026-07,482,TLT then VUSTX,True
+Long Treasuries,1986-06->2026-07,482,VUSTX then TLT,True
 Interm Treasuries,2002-08->2026-07,288,IEF,False
 Short Treasuries,2002-08->2026-07,288,SHY,False
-TIPS,2000-07->2026-07,313,TIP then VIPSX,True
-US Aggregate Bonds,1987-01->2026-07,475,BND then VBMFX,True
+TIPS,2000-07->2026-07,313,VIPSX then TIP,True
+US Aggregate Bonds,1987-01->2026-07,475,VBMFX then BND,True
 Corporate Bonds,2002-08->2026-07,288,LQD,False
 High Yield,2007-05->2026-07,231,HYG,False
 Municipal Bonds,2007-10->2026-07,226,MUB,False
 Commodities,2006-03->2026-07,245,DBC,False
-US REIT,1996-06->2026-07,362,VNQ then VGSIX,True
+US REIT,1996-06->2026-07,362,VGSIX then VNQ,True
 Silver,2006-05->2026-07,243,SLV,False
-PM Equity,1985-02->2026-07,498,FSAGX then ASA,True
+PM Equity,1986-01->2026-07,487,FSAGX,False
 Gold,1972-01->2026-07,655,external series (validated vs GLD),False

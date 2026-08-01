@@ -52,10 +52,68 @@ EXPOSURES = [
     ("Commodities",       "DBC",  [],         False),
     ("US REIT",           "VNQ",  ["VGSIX"],  True),
     ("Silver",            "SLV",  [],         False),
-    ("PM Equity",         "FSAGX", ["ASA"],   True),
+    # splice_allowed=False: the audit's anchor for this exposure is GDX, which is
+    # absent from the dataset, so FSAGX/ASA were never graded. Splicing on an
+    # equivalence test that never ran is exactly what the seam check exists to
+    # stop -- and this exposure carried 6-19% weight in the published ladder.
+    ("PM Equity",         "FSAGX", ["ASA"],   False),
 ]
 
-SEAM_TOL_PP = 1.00      # max |mean return| gap across a splice seam, pp/yr
+SEAM_TOL_PP = 1.00        # max |mean return| gap across a splice seam, pp/yr
+SEAM_TE_RATIO = 0.30      # max tracking error as a share of the pair's own vol
+SEAM_MIN_OVERLAP = 24     # months of overlap needed to judge a seam at all
+
+
+def stitch(parts: list[tuple[str, pd.Series]]) -> tuple[pd.Series, list]:
+    """Splice a chain of vehicles into one series, NEWEST FIRST.
+
+    `parts` is ordered newest-first: [(etf, series), (proxy, series), ...].
+    The newer vehicle wins every month it covers; each older one supplies only
+    the earlier span the newer ones do not reach.
+
+    This used to run oldest-first and keep only months the accumulating series
+    lacked, which inverted the intent: the OLD PROXY overwrote the ETF on every
+    overlapping month. The panel's "US Total Market" matched VFINX at 0.00
+    bps/month and VTI at 34.04 for VTI's entire life, and every published number
+    downstream was computed on proxies rather than the funds they were named
+    after.
+
+    Each join is checked on BOTH mean return and tracking error relative to the
+    pair's own volatility -- a mean-only test lets two series with equal averages
+    and different risk splice cleanly, which is precisely the substitution the
+    seam exists to prevent.
+    """
+    series, used = None, []
+    for tk, s in parts:
+        s = s.dropna()
+        if series is None:
+            series = s.copy()
+            used.append((tk, s.index.min(), s.index.max()))
+            continue
+
+        ov = series.index.intersection(s.index)
+        if len(ov) < SEAM_MIN_OVERLAP:
+            raise SystemExit(
+                f"splice {tk}: only {len(ov)} overlapping months (need "
+                f"{SEAM_MIN_OVERLAP}) -- too little evidence to judge the seam. "
+                "Refusing to splice an unvalidated join.")
+        x, y = series[ov], s[ov]
+        mean_gap = float(abs(x.mean() - y.mean()) * 1200)
+        te = float((x - y).std())
+        vol = float((x.std() + y.std()) / 2)
+        te_ratio = te / vol if vol > 0 else float("inf")
+        if mean_gap > SEAM_TOL_PP or te_ratio > SEAM_TE_RATIO:
+            raise SystemExit(
+                f"splice {tk}: seam differs by {mean_gap:.2f} pp/yr and "
+                f"TE/vol {te_ratio:.2f} over {len(ov)} shared months "
+                f"(tolerances {SEAM_TOL_PP} pp/yr, {SEAM_TE_RATIO}). "
+                "Refusing to splice.")
+
+        older = s[~s.index.isin(series.index)]
+        series = pd.concat([series, older]).sort_index()
+        used.append((tk, older.index.min() if len(older) else None,
+                     older.index.max() if len(older) else None))
+    return series, used
 
 
 def load_ticker_panel() -> pd.DataFrame:
@@ -101,27 +159,8 @@ def build() -> tuple[pd.DataFrame, pd.DataFrame]:
                 if ps.index.min() < parts[-1][1].index.min():
                     parts.append((p, ps))
 
-        # Stitch oldest-first: each older series covers only months the newer
-        # ones do not, so the ETF always wins where it exists.
-        series, used = None, []
-        for tk, s in reversed(parts):
-            if series is None:
-                series = s.copy()
-                used.append((tk, s.index.min(), s.index.max()))
-            else:
-                new = s[~s.index.isin(series.index)]
-                seam = None
-                ov = series.index.intersection(s.index)
-                if len(ov) >= 24:
-                    seam = float(abs(series[ov].mean() - s[ov].mean()) * 1200)
-                    if seam > SEAM_TOL_PP:
-                        raise SystemExit(
-                            f"{label}: splice seam {tk} vs existing differs by "
-                            f"{seam:.2f} pp/yr over {len(ov)} shared months "
-                            f"(tolerance {SEAM_TOL_PP}). Refusing to splice.")
-                series = pd.concat([series, new]).sort_index()
-                used.append((tk, new.index.min() if len(new) else None,
-                             new.index.max() if len(new) else None))
+        # parts is already newest-first (ETF, then progressively older proxies)
+        series, used = stitch(parts)
         cols[label] = series
         span = f"{str(series.index.min())[:7]}->{str(series.index.max())[:7]}"
         chain = " then ".join(t for t, _, _ in reversed(used))
@@ -165,6 +204,40 @@ def main() -> int:
             print(f"  {c}: interior gaps={gaps}, |r|>60% months={ext}")
     if not bad:
         print("  no interior gaps; no |monthly return| > 60%")
+
+    # Two exposures resolving to the same underlying fund would let the search
+    # treat one asset as two independent ones and double-count its slot. This
+    # happened: US Total Market and US Large Cap were byte-identical over all
+    # 498 months because both fell back to VFINX for their whole history.
+    cols_l = list(panel.columns)
+    dupes = []
+    for i, a in enumerate(cols_l):
+        for b in cols_l[i + 1:]:
+            j = pd.concat([panel[a], panel[b]], axis=1).dropna()
+            if len(j) >= 24 and (j.iloc[:, 0] - j.iloc[:, 1]).abs().max() < 1e-12:
+                dupes.append((a, b, len(j)))
+    if dupes:
+        raise SystemExit(
+            "DUPLICATE COLUMNS: " + "; ".join(f"{a} == {b} over {n} months"
+                                              for a, b, n in dupes)
+            + "\nRefusing to write a panel that presents one asset as two.")
+    print("  all columns pairwise distinct")
+
+    # Every spliced exposure must follow its ETF wherever the ETF exists.
+    w = load_ticker_panel()
+    for label, etf, _p, _ok in EXPOSURES:
+        if label not in panel.columns or etf not in w.columns:
+            continue
+        e = w[etf].dropna()
+        ov = panel.index.intersection(e.index)
+        if len(ov) < 12:
+            continue
+        d = float((panel.loc[ov, label] - e.loc[ov]).abs().max())
+        if d > 1e-12:
+            raise SystemExit(
+                f"{label} diverges from {etf} by {d:.2e} on months where {etf} "
+                "exists -- the proxy is winning the overlap. Refusing to write.")
+    print("  every exposure follows its ETF where the ETF exists")
 
     print("\nExposures available from each start:")
     for y in (1972, 1986, 1996, 2000, 2005, 2008):

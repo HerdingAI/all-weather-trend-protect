@@ -93,7 +93,11 @@ def compare(a: pd.Series, b: pd.Series) -> dict | None:
         return None
     x, y = j.iloc[:, 0], j.iloc[:, 1]
     te = float((x - y).std() * np.sqrt(12) * 100)          # ann. tracking error, %
-    vol = float(y.std() * np.sqrt(12) * 100)                # ann. vol of the ETF, %
+    # Denominator is the AVERAGE of both volatilities, so the verdict does not
+    # depend on argument order. Dividing by one side's volatility made the same
+    # pair pass or fail depending on which series was passed second:
+    # compare(SHY, VFISX) scored 0.299 PASS and compare(VFISX, SHY) 0.358 FAIL.
+    vol = float((x.std() + y.std()) / 2 * np.sqrt(12) * 100)
     return {
         "n": len(j),
         "corr": float(x.corr(y)),
@@ -138,16 +142,24 @@ def main() -> int:
             rows.append(dict(exposure=label, etf=etf, usable_from=None, note="ETF absent"))
             continue
         e = w[etf].dropna()
+        # Selection and reporting are tracked separately. Sharing one variable
+        # meant the reporting fallback claimed `best` on the first candidate,
+        # after which the selection branch -- which requires an EARLIER start
+        # than the incumbent -- could never promote a later passing proxy.
         best, best_c, best_g = None, None, "n/a"
+        shown, shown_c, shown_g = None, None, "n/a"
         for p in chain:
             if p not in w.columns:
                 continue
             c = compare(w[p], e)
             g = grade(c)
-            if g == "PASS" and (best is None or w[p].dropna().index.min() < w[best].dropna().index.min()):
+            if shown is None:
+                shown, shown_c, shown_g = p, c, g       # first candidate, for display
+            if g == "PASS" and (best is None
+                                or w[p].dropna().index.min() < w[best].dropna().index.min()):
                 best, best_c, best_g = p, c, g
-            if best is None:
-                best, best_c, best_g = p, c, g          # keep for reporting
+        if best is None:
+            best, best_c, best_g = shown, shown_c, shown_g
         if best is None:
             print(f"{label:20s} {etf:6s} {str(e.index.min())[:7]:9s} {'--':7s} "
                   f"{'--':10s} {'':>6s} {'':>7s} {'':>6s}  ETF-ONLY")

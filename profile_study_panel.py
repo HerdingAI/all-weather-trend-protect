@@ -44,6 +44,10 @@ PV_REPORTED = {
     "S&P 500":            dict(cagr=11.42, stdev=15.22, maxdd=-50.97, sortino=0.86),
 }
 
+# PV's backtest window and the agreement we require to trust the panel.
+PV_WINDOW = ("1986-01-31", "2026-06-30")
+RECON_TOL = dict(cagr=0.35, maxdd=1.50)
+
 CRISES = {
     "Oil/bear 73-74":  ("1973-01-31", "1974-12-31"),
     "Volcker 80-82":   ("1980-01-31", "1982-12-31"),
@@ -65,8 +69,10 @@ def stats(r: pd.Series) -> dict:
     if len(r) < 12:
         return {}
     n_y = len(r) / 12
-    dn = r.copy(); dn[dn > 0] = 0
-    dsd = dn.std() * np.sqrt(12)
+    # Downside deviation about MAR=0, not about the clipped series' own mean.
+    # `.std()` subtracts that mean, which is not the MAR=0 figure this is
+    # labelled as and made the number inconsistent with the PV comparison.
+    dsd = float(np.sqrt((np.minimum(r, 0.0) ** 2).mean()) * np.sqrt(12))
     return dict(
         n=len(r),
         cagr=((1 + r).prod() ** (1 / n_y) - 1) * 100,
@@ -109,27 +115,48 @@ def main() -> int:
           f"({str(panel.index.min())[:7]} -> {str(panel.index.max())[:7]})")
 
     # ---------------- 1. reconciliation gate ----------------
+    # A real gate: it compares over PV'S OWN WINDOW and FAILS on disagreement.
+    # It previously only printed, and silently compared the current allocation
+    # over 1998-06..2026-07 against PV's 1986-01 figures -- a 1.12 pp gap that
+    # passed unnoticed while the section claimed to make everything downstream
+    # trustworthy.
     print("\n" + "-" * 84)
     print("1. RECONCILIATION — our panel vs the user's Portfolio Visualizer figures")
     print("-" * 84)
-    print(f"{'portfolio':22s} {'window':18s} {'CAGR (ours/PV)':>18s} "
-          f"{'MaxDD (ours/PV)':>19s} {'Sortino':>14s}")
-    recon = []
+    print(f"{'portfolio':22s} {'window':20s} {'CAGR ours/PV':>16s} "
+          f"{'MaxDD ours/PV':>17s}  verdict")
+    recon, failures, skipped = [], [], []
     for name, wts in BENCHMARKS.items():
-        r = port(panel, wts)
-        if r.empty:
-            print(f"{name:22s} no data"); continue
+        sub = panel[list(wts)].dropna()
+        if sub.empty:
+            skipped.append((name, "no overlapping data")); continue
+        # Only compare where our data actually covers PV's window.
+        if sub.index.min() > pd.Timestamp(PV_WINDOW[0]):
+            skipped.append((name, f"our data starts {str(sub.index.min())[:7]}, "
+                                  f"after PV's {PV_WINDOW[0][:7]}"))
+            continue
+        r = port(panel.loc[PV_WINDOW[0]:PV_WINDOW[1]], wts)
         st = stats(r)
         pv = PV_REPORTED[name]
-        print(f"{name:22s} {str(r.index.min())[:7]}->{str(r.index.max())[:7]:>7s} "
-              f"{st['cagr']:8.2f} /{pv['cagr']:7.2f} "
-              f"{st['maxdd']:9.2f} /{pv['maxdd']:8.2f} "
-              f"{st['sortino']:6.2f} /{pv['sortino']:5.2f}")
-        recon.append(dict(portfolio=name, **st, pv_cagr=pv["cagr"],
-                          pv_maxdd=pv["maxdd"], pv_sortino=pv["sortino"]))
-    print("\n  Note: PV's window is 1986-01 onward and its Sortino uses a T-bill MAR;")
-    print("  ours starts at the panel's own first month and uses MAR=0, so levels")
-    print("  differ by convention. CAGR and MaxDD are the like-for-like checks.")
+        dc, dd = abs(st["cagr"] - pv["cagr"]), abs(st["maxdd"] - pv["maxdd"])
+        ok = dc <= RECON_TOL["cagr"] and dd <= RECON_TOL["maxdd"]
+        print(f"{name:22s} {str(r.index.min())[:7]}->{str(r.index.max())[:7]:>9s} "
+              f"{st['cagr']:7.2f} /{pv['cagr']:6.2f} "
+              f"{st['maxdd']:8.2f} /{pv['maxdd']:7.2f}  "
+              f"{'PASS' if ok else f'FAIL (dCAGR {dc:.2f}, dDD {dd:.2f})'}")
+        recon.append(dict(portfolio=name, window=f"{str(r.index.min())[:7]}..{str(r.index.max())[:7]}",
+                          **st, pv_cagr=pv["cagr"], pv_maxdd=pv["maxdd"], passed=ok))
+        if not ok:
+            failures.append(f"{name} (dCAGR {dc:.2f} pp, dMaxDD {dd:.2f} pp)")
+    for name, why in skipped:
+        print(f"{name:22s} NOT COMPARABLE — {why}")
+    print(f"\n  Tolerance: {RECON_TOL['cagr']:.2f} pp CAGR, {RECON_TOL['maxdd']:.2f} pp MaxDD, "
+          f"over PV's own window {PV_WINDOW[0][:7]}..{PV_WINDOW[1][:7]}.")
+    if failures:
+        raise SystemExit(
+            "RECONCILIATION FAILED: " + "; ".join(failures) +
+            "\nIf we cannot reproduce a known answer, nothing downstream is "
+            "trustworthy. Refusing to publish a profile on this panel.")
 
     # ---------------- 2. per-exposure description ----------------
     print("\n" + "-" * 84)
