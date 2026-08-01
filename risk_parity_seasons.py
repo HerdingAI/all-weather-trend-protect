@@ -110,15 +110,6 @@ PRESETS = {
     # total-return fund, VUSTX). Sleeve availability is tested over the whole
     # window, so under long1985 Treasuries drops out of the search entirely.
     # Starting at 1986-06 keeps the full 7-sleeve universe.
-    "long1986": dict(
-        window=("1986-06-30", "2026-07-31"),
-        sleeves=["US Equity", "International Equity", "World Equity",
-                 "US Treasuries", "US Corporate Bonds", "US Municipal Bonds",
-                 "Gold/Precious Metals"],
-        equity=["US Equity", "International Equity", "World Equity"],
-        bonds=["US Treasuries", "US Corporate Bonds", "US Municipal Bonds"],
-        inh=["Gold/Precious Metals"], div=[],
-        min_train=10, test=4, step=4, max_sleeves=7, min_sleeves=5),
     # long1980 trades sleeve breadth for ~5 more years of history -- crucially
     # the Volcker shock and the 1980-82 bond bear, the only high-inflation
     # stress in the record. Only five sleeves reach 1980, so min_sleeves drops
@@ -132,6 +123,10 @@ PRESETS = {
         inh=["Gold/Precious Metals"], div=[],
         min_train=10, test=4, step=4, max_sleeves=5, min_sleeves=4),
 }
+
+# long1986 IS long1985's universe with a later start, so derive it rather than
+# retyping the sleeve lists -- otherwise a fix to one silently misses the other.
+PRESETS["long1986"] = {**PRESETS["long1985"], "window": ("1986-06-30", "2026-07-31")}
 
 
 # --------------------------------------------------------------------------- #

@@ -161,36 +161,27 @@ def restrict_universe(wide: pd.DataFrame, reference: set):
 # --------------------------------------------------------------------------- #
 
 def _first_bday(period) -> pd.Timestamp:
-    """First business day (Mon-Fri) of a monthly Period.
-
-    Rolls FORWARD off a weekend, and must never leave the month.
-    """
-    d = period.to_timestamp("s")
-    while d.weekday() >= 5:
-        d += pd.Timedelta(days=1)
-    return d
+    """First business day (Mon-Fri) of a monthly Period."""
+    return pd.offsets.BMonthBegin().rollforward(period.to_timestamp("s"))
 
 
 def _last_bday(period) -> pd.Timestamp:
     """Last business day (Mon-Fri) of a monthly Period.
 
-    Rolls BACKWARD off a weekend, and must never leave the month. Compared
-    against the archive edge to decide calendar completeness: using the
+    Compared against the archive edge to decide calendar completeness: using the
     business-day end rather than the calendar end avoids declaring a month
     truncated merely because the 31st fell on a weekend.
 
-    Do NOT use `pd.offsets.BDay(0)` here -- it rolls *forward*, which pushed the
-    answer into the following month for the 29% of months that end on a weekend
-    and silently dropped genuinely complete months.
+    Do NOT reach for `pd.offsets.BDay(0)` here -- it rolls *forward*, which
+    pushed the answer into the following month for the 29% of months that end on
+    a weekend and silently dropped genuinely complete months. `BMonthEnd()`
+    rolls back, which is what this needs.
 
     Holidays are not modelled, so a market holiday on the final business day
     still reads as truncated. That is deliberately conservative: dropping one
     real month is cheaper than publishing a partial month as a whole one.
     """
-    d = period.to_timestamp("M")
-    while d.weekday() >= 5:
-        d -= pd.Timedelta(days=1)
-    return d
+    return pd.offsets.BMonthEnd().rollback(period.to_timestamp("M"))
 
 
 def daily_to_monthly_returns(daily: pd.DataFrame, complete_only: bool = True) -> pd.DataFrame:
@@ -227,29 +218,25 @@ def daily_to_monthly_returns(daily: pd.DataFrame, complete_only: bool = True) ->
             monthly = monthly[~monthly["month"].isin(truncated)]
             d = d[~d["month"].isin(truncated)]
 
-        span = d.groupby("month")["date"].agg(["min", "max"])
-        arch_days = d.groupby("month")["date"].nunique()
+        span = d.groupby("month")["date"].agg(["min", "max", "nunique"])
         tk_days = d.groupby(["ticker", "month"])["date"].nunique()
         edge = d.groupby("ticker")["date"].agg(["min", "max"])
-        first_m = edge["min"].dt.to_period("M")
-        last_m = edge["max"].dt.to_period("M")
 
-        keep = []
-        for row in monthly.itertuples(index=False):
-            tk, m = row.ticker, row.month
-            if m == first_m[tk] and edge["min"][tk] > span["min"][m]:
-                keep.append(False)          # started mid-month
-            elif m == last_m[tk] and edge["max"][tk] < span["max"][m]:
-                keep.append(False)          # ended mid-month
-            elif tk_days[(tk, m)] < MIN_MONTH_COVERAGE * arch_days[m]:
-                # (3) INTERIOR sparse month. The edge tests above only look at a
-                # ticker's global first/last month, so a mid-history gap --
-                # delist/relist, trading halt, vendor outage -- was compounded
-                # from a stub and published as a full-month return.
-                keep.append(False)
-            else:
-                keep.append(True)
-        monthly = monthly[pd.Series(keep, index=monthly.index)]
+        # Vectorized rather than a per-row loop: ~129k (ticker, month) pairs each
+        # needing several scalar label lookups ran at Python speed and dominated
+        # the function (~16s of ~24s). Same three conditions, same result.
+        tk, m = monthly["ticker"], monthly["month"]
+        started_mid = ((m == tk.map(edge["min"].dt.to_period("M")))
+                       & (tk.map(edge["min"]) > m.map(span["min"])))
+        ended_mid = ((m == tk.map(edge["max"].dt.to_period("M")))
+                     & (tk.map(edge["max"]) < m.map(span["max"])))
+        # (3) INTERIOR sparse month. The edge tests above only look at a ticker's
+        # global first/last month, so a mid-history gap -- delist/relist, trading
+        # halt, vendor outage -- was compounded from a stub and published as a
+        # full-month return.
+        sparse = (pd.MultiIndex.from_arrays([tk, m]).map(tk_days)
+                  < MIN_MONTH_COVERAGE * m.map(span["nunique"]))
+        monthly = monthly[~(started_mid | ended_mid | sparse)]
 
     wide = monthly.pivot(index="month", columns="ticker", values="r")
     wide.index = wide.index.to_timestamp("M")
@@ -267,6 +254,10 @@ def month_end_levels(prices: pd.DataFrame) -> pd.DataFrame:
     """
     px = prices.copy()
     px.index = pd.to_datetime(px.index)
+    # Sort explicitly: .last() takes the last value in ROW order within a group,
+    # not the latest by date, so an unsorted input would silently pick the wrong
+    # month-end level.
+    px = px.sort_index()
     out = px.groupby(px.index.to_period("M")).last()
     out.index = out.index.to_timestamp("M")
     out.index.name = "Date"
@@ -331,7 +322,8 @@ def _max_abs_diff(a: pd.DataFrame, b: pd.DataFrame):
     return float(np.nanmax(diff)), ""
 
 
-def reproduction_gate(wide: pd.DataFrame, extra: dict | None = None,
+def reproduction_gate(native: pd.DataFrame, legacy: pd.DataFrame,
+                      extra: dict | None = None,
                       accept_rebuild: bool = False) -> None:
     """Prove the tracked inputs still reproduce the file on disk.
 
@@ -352,10 +344,8 @@ def reproduction_gate(wide: pd.DataFrame, extra: dict | None = None,
     published = pd.read_csv(AC_CSV, index_col=0, parse_dates=True)
 
     candidates = {
-        "pre-fix (old rule, monthly source)":
-            equal_weight(wide, aggregatable_groups(ALL_TICKERS, wide.columns, legacy=True)),
-        "fixed-only (new rule, monthly source)":
-            equal_weight(wide, aggregatable_groups(ALL_TICKERS, wide.columns)),
+        "pre-fix (old rule, monthly source)": legacy,
+        "fixed-only (new rule, monthly source)": native,
     }
     candidates.update(extra or {})
 
@@ -387,9 +377,8 @@ def reproduction_gate(wide: pd.DataFrame, extra: dict | None = None,
 EXPECTED_CHANGED = {"US Treasuries", "US Equity", "Volatility"}
 
 
-def delta_gate(wide: pd.DataFrame, clean: pd.DataFrame) -> None:
+def delta_gate(legacy: pd.DataFrame, clean: pd.DataFrame) -> None:
     """Exactly three sleeves may change. A fourth means a bug in the policy."""
-    legacy = equal_weight(wide, aggregatable_groups(ALL_TICKERS, wide.columns, legacy=True))
     changed = set()
     for c in sorted(set(legacy.columns) | set(clean.columns)):
         if c not in legacy.columns or c not in clean.columns:
@@ -502,6 +491,13 @@ def main(argv=None) -> int:
     print(f"\nMonthly ticker panel: {monthly_wide.shape[1]} tickers, "
           f"{str(monthly_wide.index.min())[:7]} -> {str(monthly_wide.index.max())[:7]}")
 
+    # The two monthly-source aggregates are each needed in three places (gates,
+    # the downgrade guard, the removed-sleeve report). Build them once so every
+    # consumer compares against the same object and the call sites cannot drift.
+    native = equal_weight(monthly_wide, aggregatable_groups(ALL_TICKERS, monthly_wide.columns))
+    legacy = equal_weight(monthly_wide,
+                          aggregatable_groups(ALL_TICKERS, monthly_wide.columns, legacy=True))
+
     if args.extended:
         print("\nBuilding from the daily archive ...")
         daily = load_daily_long()
@@ -521,8 +517,6 @@ def main(argv=None) -> int:
     clean = equal_weight(src_wide, groups)
 
     if args.extended:
-        native = equal_weight(monthly_wide,
-                              aggregatable_groups(ALL_TICKERS, monthly_wide.columns))
         clean, spliced = splice_tail(clean, native)
         if spliced:
             print(f"\n  tail splice: {[str(d)[:7] for d in spliced]} carried over from the "
@@ -534,9 +528,7 @@ def main(argv=None) -> int:
     # ~140 months, so refuse with an instruction rather than a gate mismatch.
     if not args.extended and os.path.exists(AC_CSV):
         on_disk = pd.read_csv(AC_CSV, index_col=0, parse_dates=True)
-        native_start = equal_weight(
-            monthly_wide, aggregatable_groups(ALL_TICKERS, monthly_wide.columns)
-        ).index.min()
+        native_start = native.index.min()
         if len(on_disk) and on_disk.index.min() < native_start:
             raise SystemExit(
                 f"The panel on disk starts {str(on_disk.index.min())[:7]}, before the "
@@ -549,22 +541,18 @@ def main(argv=None) -> int:
     # The extended panel is a valid on-disk state too, so offer it as a
     # candidate -- otherwise re-running --extended would read as corruption.
     reproduction_gate(
-        monthly_wide,
+        native, legacy,
         extra={"extended (new rule, daily source)": clean} if args.extended else None,
         accept_rebuild=args.accept_rebuild,
     )
     if not args.extended:
-        delta_gate(monthly_wide, clean)
+        delta_gate(legacy, clean)
 
     print(f"\nClean aggregate: {clean.shape[0]} months x {clean.shape[1]} sleeves")
     for c in clean.columns:
         print(_summarize(c, clean[c]))
 
-    dropped_sleeves = sorted(
-        set(equal_weight(monthly_wide,
-                         aggregatable_groups(ALL_TICKERS, monthly_wide.columns,
-                                             legacy=True)).columns)
-        - set(clean.columns))
+    dropped_sleeves = sorted(set(legacy.columns) - set(clean.columns))
     if dropped_sleeves:
         print(f"\nSleeves removed by the fix: {dropped_sleeves}")
 
