@@ -163,9 +163,22 @@ def main(argv=None) -> int:
     # 0-byte or half-flushed report -- and because every target is parsed up
     # front, one unparseable report then blocks re-running the other eleven.
     # The report is the only record of what ran; do not destroy it without a copy.
+    # MERGE, never truncate: a `--only <round>` run would otherwise replace the
+    # snapshot with a single entry and destroy the recovery record for the other
+    # eleven rounds -- exactly when recovery matters most.
     snapshot = os.path.join(args.log_dir, "configs.json")
-    with open(snapshot, "w") as fh:
-        json.dump(cfgs, fh, indent=2)
+    merged = {}
+    if os.path.exists(snapshot):
+        try:
+            with open(snapshot) as fh:
+                merged = {c["dir"]: c for c in json.load(fh)}
+        except (json.JSONDecodeError, KeyError, TypeError):
+            print(f"  note: {snapshot} unreadable; starting a fresh snapshot")
+    merged.update({c["dir"]: c for c in cfgs})
+    tmp = f"{snapshot}.tmp.{os.getpid()}"
+    with open(tmp, "w") as fh:
+        json.dump(list(merged.values()), fh, indent=2)
+    os.replace(tmp, snapshot)
 
     print(f"Re-running {len(cfgs)} eval rounds, {args.jobs} at a time, "
           f"BLAS pinned to 1 thread/process, largest first.")

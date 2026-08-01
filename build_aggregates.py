@@ -184,7 +184,8 @@ def _last_bday(period) -> pd.Timestamp:
     return pd.offsets.BMonthEnd().rollback(period.to_timestamp("M"))
 
 
-def daily_to_monthly_returns(daily: pd.DataFrame, complete_only: bool = True) -> pd.DataFrame:
+def daily_to_monthly_returns(daily: pd.DataFrame, prices: pd.DataFrame | None = None,
+                             complete_only: bool = True) -> pd.DataFrame:
     """Compound daily returns to month-end, one column per ticker.
 
     `complete_only` drops a ticker's first and last month when the archive does
@@ -207,6 +208,12 @@ def daily_to_monthly_returns(daily: pd.DataFrame, complete_only: bool = True) ->
         #      Compare the archive edge against the CALENDAR month instead.
         #  (2) TICKER-level. A ticker that inceptions or dies mid-month has a
         #      partial first/last month even though the archive covers it fully.
+        # The ticker's TRUE first month, captured before the truncation filter
+        # below can remove earlier months. Using the post-filter value would let
+        # a month inherit the first-observation allowance it is not entitled to
+        # and silently re-admit a broken return chain.
+        true_first_m = d.groupby("ticker")["date"].min().dt.to_period("M").to_dict()
+
         arch_min, arch_max = d["date"].min(), d["date"].max()
         truncated = set()
         first_m, last_m_arch = arch_min.to_period("M"), arch_max.to_period("M")
@@ -225,18 +232,75 @@ def daily_to_monthly_returns(daily: pd.DataFrame, complete_only: bool = True) ->
         # Vectorized rather than a per-row loop: ~129k (ticker, month) pairs each
         # needing several scalar label lookups ran at Python speed and dominated
         # the function (~16s of ~24s). Same three conditions, same result.
+        # Map through plain dicts: mapping an Arrow-backed string column with a
+        # Period-valued Series raises "Cannot cast PeriodArray to dtype float64",
+        # so the dtype of `ticker` would otherwise decide whether this works.
         tk, m = monthly["ticker"], monthly["month"]
-        started_mid = ((m == tk.map(edge["min"].dt.to_period("M")))
-                       & (tk.map(edge["min"]) > m.map(span["min"])))
-        ended_mid = ((m == tk.map(edge["max"].dt.to_period("M")))
-                     & (tk.map(edge["max"]) < m.map(span["max"])))
+        tk_first_m = edge["min"].dt.to_period("M").to_dict()
+        tk_last_m = edge["max"].dt.to_period("M").to_dict()
+        tk_min, tk_max = edge["min"].to_dict(), edge["max"].to_dict()
+        started_mid = ((m == tk.map(tk_first_m))
+                       & (tk.map(tk_min) > m.map(span["min"].to_dict())))
+        ended_mid = ((m == tk.map(tk_last_m))
+                     & (tk.map(tk_max) < m.map(span["max"].to_dict())))
         # (3) INTERIOR sparse month. The edge tests above only look at a ticker's
         # global first/last month, so a mid-history gap -- delist/relist, trading
         # halt, vendor outage -- was compounded from a stub and published as a
         # full-month return.
-        sparse = (pd.MultiIndex.from_arrays([tk, m]).map(tk_days)
-                  < MIN_MONTH_COVERAGE * m.map(span["nunique"]))
+        pair = list(zip(tk, m))
+        tk_days_d = tk_days.to_dict()
+        sparse = (pd.Series([tk_days_d.get(k, 0) for k in pair], index=monthly.index)
+                  < MIN_MONTH_COVERAGE * m.map(span["nunique"].to_dict()))
+
+        # (4) BROKEN RETURN CHAIN. Coverage is not integrity. The archive stores
+        # prices.pct_change(), so a missing PRICE also removes that day's return
+        # row -- but the NEXT day's stored return is still measured against the
+        # missing close. Compounding the survivors drops the move INTO the gap
+        # while keeping the move OUT of it, which is unbounded error at high
+        # coverage. Real case: ASA 2026-05 had 19 of 20 days (95%, far above
+        # MIN_MONTH_COVERAGE) yet compounded to -4.35% against a true +0.38%,
+        # publishing a 2026-05 row wrong by up to 427 bps across 17 sleeves.
+        broken = pd.Series(False, index=monthly.index)
+        if prices is not None:
+            px_obs = (prices.notna().stack()
+                        .rename("has_px").reset_index())
+            px_obs.columns = ["date", "ticker", "has_px"]
+            px_obs = px_obs[px_obs["has_px"]]
+            px_obs["month"] = px_obs["date"].dt.to_period("M")
+            px_days = px_obs.groupby(["ticker", "month"])["date"].nunique()
+            px_days_d = px_days.to_dict()
+            n_px = pd.Series([px_days_d.get(k, 0) for k in pair], index=monthly.index)
+            n_ret = pd.Series([tk_days_d.get(k, 0) for k in pair], index=monthly.index)
+            # One price legitimately has no return: a ticker's very first
+            # observation. Anything beyond that is a hole in the chain.
+            allowance = (m == tk.map(true_first_m)).astype(int)
+            broken = n_px > (n_ret + allowance.values)
+
         monthly = monthly[~(started_mid | ended_mid | sparse)]
+        broken = broken[monthly.index]
+
+        if broken.any():
+            # REPAIR rather than drop. The price panel is authoritative and its
+            # month-over-month ratio is exactly what the monthly-native panel
+            # measures, so recomputing is both correct and consistent -- whereas
+            # dropping would lose the month for the whole panel (the archive is
+            # missing 2026-05-26 returns for 335 of 336 tickers, so that single
+            # date would otherwise delete a real month everywhere).
+            mep = month_end_levels(prices)
+            ratio = mep.pct_change()
+            fixed = pd.Series(
+                [ratio.at[mm.to_timestamp("M"), t]
+                 if (t in ratio.columns and mm.to_timestamp("M") in ratio.index)
+                 else np.nan
+                 for t, mm in zip(monthly.loc[broken, "ticker"],
+                                  monthly.loc[broken, "month"])],
+                index=monthly.index[broken])
+            monthly.loc[broken, "r"] = fixed
+            n_bad = int(fixed.isna().sum())
+            print(f"  repaired {int(broken.sum()):,} (ticker, month) pairs with a "
+                  f"broken return chain from month-end prices"
+                  + (f"; {n_bad} unrepairable and dropped" if n_bad else ""))
+            monthly = monthly[monthly["r"].notna()]
 
     wide = monthly.pivot(index="month", columns="ticker", values="r")
     wide.index = wide.index.to_timestamp("M")
@@ -374,6 +438,42 @@ def reproduction_gate(native: pd.DataFrame, legacy: pd.DataFrame,
     )
 
 
+# The two constructions are measuring the same thing over their shared months,
+# so they must agree. Measured agreement is <=0.9 bps/month over 497 overlapping
+# months; 10 bps leaves headroom for float noise without hiding a real defect.
+OVERLAP_TOL = 10e-4
+
+
+def overlap_gate(clean: pd.DataFrame, native: pd.DataFrame) -> None:
+    """Extended vs monthly-native must agree where they overlap.
+
+    This is the guard whose absence let a 427 bps error reach the published
+    panel. In extended mode the reproduction gate only compares the rebuild
+    against the file the same code just wrote, which cannot detect a systematic
+    construction fault -- the two independent constructions can.
+    """
+    idx = clean.index.intersection(native.index)
+    cols = sorted(set(clean.columns) & set(native.columns))
+    if not len(idx) or not cols:
+        print("  [gate] overlap: no shared months/sleeves to compare — skipped")
+        return
+    diff = (clean.loc[idx, cols] - native.loc[idx, cols]).abs()
+    worst = float(np.nanmax(diff.values)) if np.isfinite(diff.values).any() else 0.0
+    if worst > OVERLAP_TOL:
+        where = diff.max(axis=1).idxmax()
+        sleeves = diff.loc[where].sort_values(ascending=False).head(5)
+        raise SystemExit(
+            f"OVERLAP GATE FAILED: extended and monthly-native disagree by "
+            f"{worst*1e4:.1f} bps (tolerance {OVERLAP_TOL*1e4:.0f} bps).\n"
+            f"  worst month: {str(where)[:10]}\n"
+            + "\n".join(f"    {s}: {v*1e4:.1f} bps" for s, v in sleeves.items())
+            + "\nThe two constructions measure the same thing; a gap this large "
+              "means one of them is wrong. Do not publish."
+        )
+    print(f"  [gate] extended vs monthly-native agree over {len(idx)} shared "
+          f"months (max {worst*1e4:.2f} bps) OK")
+
+
 EXPECTED_CHANGED = {"US Treasuries", "US Equity", "Volatility"}
 
 
@@ -413,6 +513,19 @@ def _summarize(name: str, s: pd.Series) -> str:
         return f"    {name:26s} EMPTY"
     return (f"    {name:26s} {str(s.index.min())[:7]} -> {str(s.index.max())[:7]}  "
             f"n={len(s):4d}  ann={s.mean()*1200:6.2f}%  vol={s.std()*np.sqrt(12)*100:6.2f}%")
+
+
+def _atomic_to_csv(df: pd.DataFrame, path: str, **kw) -> None:
+    """Write via a temp file + os.replace so a crash cannot truncate a published
+    dataset. os.replace is atomic within a filesystem, so a reader sees either
+    the old file or the new one, never a half-written panel."""
+    tmp = f"{path}.tmp.{os.getpid()}"
+    try:
+        df.to_csv(tmp, **kw)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
 
 
 def asset_class_summary(clean: pd.DataFrame) -> pd.DataFrame:
@@ -503,7 +616,8 @@ def main(argv=None) -> int:
         daily = load_daily_long()
         print(f"  daily rows={len(daily):,}  "
               f"{str(daily['date'].min())[:10]} -> {str(daily['date'].max())[:10]}")
-        src_wide = daily_to_monthly_returns(daily, complete_only=True)
+        daily_px = pd.read_parquet(DAILY_PRICES_PQ)
+        src_wide = daily_to_monthly_returns(daily, prices=daily_px, complete_only=True)
         src_wide, dropped = restrict_universe(src_wide, set(monthly_wide.columns))
         if dropped:
             print(f"  universe reconciliation: dropped {len(dropped)} daily-only "
@@ -538,6 +652,8 @@ def main(argv=None) -> int:
             )
 
     print("\nGates:")
+    if args.extended:
+        overlap_gate(clean, native)
     # The extended panel is a valid on-disk state too, so offer it as a
     # candidate -- otherwise re-running --extended would read as corruption.
     reproduction_gate(
@@ -560,13 +676,13 @@ def main(argv=None) -> int:
         print("\n--dry-run: nothing written.")
         return 0
 
-    clean.to_csv(AC_CSV)
+    _atomic_to_csv(clean, AC_CSV)
     print(f"\nWrote {AC_CSV}  shape={clean.shape}")
 
     # Derived from the panel -- must be rewritten together with it, or it keeps
     # publishing the superseded numbers.
     summary = asset_class_summary(clean)
-    summary.to_csv(AC_SUMMARY_CSV, index=False)
+    _atomic_to_csv(summary, AC_SUMMARY_CSV, index=False)
     print(f"Wrote {AC_SUMMARY_CSV}  rows={len(summary)}")
 
     if args.extended:
@@ -575,16 +691,17 @@ def main(argv=None) -> int:
         # and cross-checks them against the daily panel; overwriting it with a
         # daily-derived sample would make that check compare the daily data
         # against itself, silently voiding the audit that is our control.
-        prices = pd.read_parquet(DAILY_PRICES_PQ)
-        levels = month_end_levels(prices)
+        levels = month_end_levels(daily_px)
         levels, _ = restrict_universe(levels, set(ALL_TICKERS))
-        levels.to_csv(PRICES_EXT_CSV)
+        _atomic_to_csv(levels, PRICES_EXT_CSV)
         print(f"Wrote {PRICES_EXT_CSV}  shape={levels.shape} "
               f"({str(levels.index.min())[:7]} -> {str(levels.index.max())[:7]}) "
               "[month-end LEVELS, sampled not compounded]")
 
-        cov = coverage_table(src_wide, groups)
-        cov.to_csv(COVERAGE_CSV, index=False)
+        # Reindex to the panel actually written, so first/last month and
+        # n_months match the file rather than the pre-splice frame.
+        cov = coverage_table(src_wide.reindex(clean.index), groups)
+        _atomic_to_csv(cov, COVERAGE_CSV, index=False)
         print(f"Wrote {COVERAGE_CSV}  rows={len(cov)}")
 
     print("\n=== DONE ===")

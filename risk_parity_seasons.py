@@ -296,25 +296,31 @@ def load_deflator(args, ret: pd.DataFrame) -> pd.Series | None:
     # the span undeflated and published the hybrid as a real return (long1980:
     # 175 of 429 OOS months, 41%, giving 1.52% where the fully-deflated figure
     # is 2.67%). "Gold/Precious Metals" is the miners proxy and reaches 1978.
+    # Pick the first sleeve that COVERS THE RUN WINDOW. Preferring whichever
+    # sleeve merely starts earlier would swap every preset onto the miners
+    # proxy -- including `modern` (2008+), where bullion covers the window
+    # fully -- silently changing presets that never had the coverage problem.
+    w0 = pd.Timestamp(args.window_start)
+    w1 = pd.Timestamp(args.window_end)
     for col in ("Gold", "Gold/Precious Metals"):
         if col not in ret.columns:
             continue
         s = ret[col].dropna()
         if s.empty:
             continue
-        start = s.index.min()
-        alt = "Gold/Precious Metals"
-        if col == "Gold" and alt in ret.columns:
-            alt_start = ret[alt].dropna().index.min()
-            if alt_start is not None and alt_start < start:
-                print(f"  No CPI provided (--cpi-csv). Using {alt} (from "
-                      f"{str(alt_start)[:7]}) as a harsh purchasing-power deflator "
-                      f"-- '{col}' only starts {str(start)[:7]} and undeflated months "
-                      "would be counted as zero inflation. NOT literal CPI.")
-                return ret[alt]
+        if s.index.min() > w0:
+            print(f"  Deflator: '{col}' starts {str(s.index.min())[:7]}, after the "
+                  f"window start {str(w0)[:7]} -- undeflated months would count as "
+                  "zero inflation, so trying a longer sleeve.")
+            continue
         print(f"  No CPI provided (--cpi-csv). Using {col} as a harsh"
               " purchasing-power deflator (inflation stress), NOT literal CPI.")
         return ret[col]
+    print("  WARNING: no gold sleeve covers the window; real returns will be "
+          "partly undeflated.")
+    for col in ("Gold/Precious Metals", "Gold"):
+        if col in ret.columns and not ret[col].dropna().empty:
+            return ret[col]
     return None
 
 
@@ -456,7 +462,8 @@ def main(argv=None) -> int:
           f"({(w_e-w_s).days/365.25:.1f}y)  cap={args.cap}  shrink={args.shrink}  "
           f"cost={args.cost_bps}bps  schemes={schemes}")
     print("Volatility (^VIX) excluded; stagflation weighted 2x." +
-          ("  [long1985: Gold via VGPMX/gold-futures TR proxy]" if args.preset=="long1985" else "  TIPS sleeve added."))
+          (f"  [{args.preset}: Gold via VGPMX/gold-futures TR proxy]"
+           if args.preset != "modern" else "  TIPS sleeve added."))
 
     ret = load_augmented_returns()
     tnx = load_10y_yield()
@@ -769,11 +776,11 @@ def write_report(args, oos, oos_m, aw_oos, aw_oos_m, real_oos, real_aw, deflator
     a("  **Add a CPI series for true real-return accounting** — this is the single biggest")
     a("  remaining gap.")
     if long_run:
-        a("- **History length:** the long1985 preset uses the asset-class series that exist")
-        a("  back to 1985 (~41y) — the investable-as-of-1985 set. Sleeves that only start in")
-        a("  the ETF era (TIPS 2004, GLD 2004, DBC 2006, UUP 2007, EM bonds 2008) are NOT in")
-        a("  this preset; run `--preset modern` for the richer 2008+ universe. 1871 is not")
-        a("  available for these sleeves.")
+        a(f"- **History length:** the `{args.preset}` preset uses the asset-class "
+          f"series that exist back to {args.window_start[:4]} "
+          f"(~{(pd.Timestamp(args.window_end)-pd.Timestamp(args.window_start)).days/365.25:.0f}y); "
+          "ETF-era sleeves that inception later are excluded from it. Run "
+          "`--preset modern` for the richer 2008+ universe.")
     else:
         a("- **History length:** modern preset uses the full ETF-era multi-sleeve set from")
         a("  ~2008 (18.6y). For the ~41y investable-as-of-1985 view, run `--preset long1985`.")

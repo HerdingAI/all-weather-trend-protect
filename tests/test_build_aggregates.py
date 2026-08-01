@@ -314,6 +314,41 @@ class TestAssetClassSummary:
         assert "C" not in set(ba.asset_class_summary(p)["asset_class"])
 
 
+class TestAtomicWrite:
+    """These files are tracked, published research inputs. A crash mid-write
+    must leave the previous version intact rather than a truncated panel."""
+
+    def test_replaces_content_completely(self, tmp_path):
+        target = tmp_path / "panel.csv"
+        df1 = pd.DataFrame({"X": [1.0, 2.0]}, index=pd.to_datetime(
+            ["2000-01-31", "2000-02-29"]))
+        ba._atomic_to_csv(df1, str(target))
+        df2 = pd.DataFrame({"X": [9.0]}, index=pd.to_datetime(["2000-01-31"]))
+        ba._atomic_to_csv(df2, str(target))
+        back = pd.read_csv(target, index_col=0, parse_dates=True)
+        assert len(back) == 1 and back["X"].iloc[0] == 9.0
+
+    def test_leaves_no_temp_file_behind(self, tmp_path):
+        target = tmp_path / "panel.csv"
+        ba._atomic_to_csv(pd.DataFrame({"X": [1.0]}), str(target))
+        assert [p.name for p in tmp_path.iterdir()] == ["panel.csv"]
+
+    def test_failed_write_preserves_the_previous_file(self, tmp_path):
+        target = tmp_path / "panel.csv"
+        good = pd.DataFrame({"X": [1.0]})
+        ba._atomic_to_csv(good, str(target))
+
+        class Exploding(pd.DataFrame):
+            def to_csv(self, *a, **k):
+                raise OSError("disk full")
+
+        with pytest.raises(OSError):
+            ba._atomic_to_csv(Exploding({"X": [2.0]}), str(target))
+        back = pd.read_csv(target, index_col=0)
+        assert back["X"].iloc[0] == 1.0, "a failed write clobbered the good file"
+        assert [p.name for p in tmp_path.iterdir()] == ["panel.csv"]
+
+
 class TestDiffHelper:
     """Backs the reproduction gate, which must distinguish 'inputs changed'
     from 'file already fixed' rather than conflating them."""
@@ -443,6 +478,101 @@ class TestInteriorCoverage:
                                           complete_only=True)
         assert not pd.isna(out.loc[pd.Timestamp("2026-01-31"), "A"])
         assert not pd.isna(out.loc[pd.Timestamp("2026-03-31"), "A"])
+
+
+class TestBrokenReturnChain:
+    """A month can have near-full day coverage and still compound to garbage.
+
+    The daily archive stores `prices.pct_change()`, so a missing PRICE produces a
+    missing return row -- but the NEXT day's stored return is still measured
+    against that missing close. Compounding the surviving rows therefore drops
+    the move INTO the gap while keeping the move OUT of it.
+
+    Real case: ASA 2026-05 has a price on 05-26 (62.48) but no 05-26 return row;
+    the stored 05-27 return (-3.84%) is 60.08/62.48-1. Compounding gives -4.35%
+    where the true month is +0.38%. Coverage is 19/20 days, so the sparse rule
+    cannot see it. This published a 2026-05 row wrong by up to 427 bps.
+    """
+
+    # April..June so May is an INTERIOR month: the archive-edge rule would
+    # otherwise drop it, since pct_change makes the return panel start a day
+    # after the price panel.
+    DAYS = pd.bdate_range("2026-04-01", "2026-06-30")
+
+    def _prices(self):
+        return pd.DataFrame({"A": np.linspace(100.0, 130.0, len(self.DAYS))},
+                            index=self.DAYS)
+
+    def _returns(self, prices):
+        r = prices["A"].pct_change().dropna()
+        return pd.DataFrame({"date": r.index, "ticker": "A", "daily_return": r.values})
+
+    def _true_may_return(self, prices):
+        apr = prices["A"].loc["2026-04-01":"2026-04-30"].iloc[-1]
+        may = prices["A"].loc["2026-05-01":"2026-05-31"].iloc[-1]
+        return may / apr - 1.0
+
+    def test_broken_month_is_repaired_from_prices_not_left_wrong(self):
+        prices = self._prices()
+        daily = self._returns(prices)
+        # Remove one May return row while KEEPING its price -- the exact archive
+        # defect. Coverage stays ~95%, far above MIN_MONTH_COVERAGE.
+        victim = daily[daily["date"] == pd.Timestamp("2026-05-13")].index
+        assert len(victim) == 1
+        broken_input = daily.drop(victim)
+
+        naive = float(np.prod(1.0 + broken_input[
+            (broken_input["date"] >= "2026-05-01")
+            & (broken_input["date"] <= "2026-05-31")]["daily_return"].values) - 1.0)
+        truth = self._true_may_return(prices)
+        assert abs(naive - truth) > 1e-6, "fixture does not actually break the chain"
+
+        out = ba.daily_to_monthly_returns(broken_input, prices=prices,
+                                          complete_only=True)
+        assert out.loc[pd.Timestamp("2026-05-31"), "A"] == pytest.approx(truth), \
+            "a broken chain was published instead of being repaired from prices"
+
+    def test_intact_chain_is_kept(self):
+        prices = self._prices()
+        out = ba.daily_to_monthly_returns(self._returns(prices), prices=prices,
+                                          complete_only=True)
+        assert not pd.isna(out.loc[pd.Timestamp("2026-05-31"), "A"])
+
+    def test_prices_argument_is_optional(self):
+        # Callers without a price panel keep the old behaviour rather than crash.
+        daily = pd.DataFrame({
+            "date": pd.to_datetime(["2026-05-04", "2026-05-05"]),
+            "ticker": ["A", "A"], "daily_return": [0.01, 0.01]})
+        out = ba.daily_to_monthly_returns(daily, complete_only=False)
+        assert out.loc[pd.Timestamp("2026-05-31"), "A"] == pytest.approx(1.01 * 1.01 - 1)
+
+
+class TestExtendedVsNativeGate:
+    """The systemic guard: the two constructions must agree where they overlap.
+
+    Nothing checked this, which is why a 427 bps error in one month reached the
+    published panel. Only the reproduction gate ran in extended mode, and it
+    compares the rebuild against the file the same code just produced.
+    """
+
+    IDX = pd.to_datetime(["2000-01-31", "2000-02-29"])
+
+    def test_disagreement_beyond_tolerance_raises(self):
+        clean = pd.DataFrame({"X": [0.10, 0.20]}, index=self.IDX)
+        native = pd.DataFrame({"X": [0.10, 0.25]}, index=self.IDX)
+        with pytest.raises(SystemExit):
+            ba.overlap_gate(clean, native)
+
+    def test_agreement_within_tolerance_passes(self):
+        clean = pd.DataFrame({"X": [0.10, 0.20]}, index=self.IDX)
+        native = pd.DataFrame({"X": [0.10, 0.2000001]}, index=self.IDX)
+        ba.overlap_gate(clean, native)
+
+    def test_months_outside_the_overlap_are_ignored(self):
+        clean = pd.DataFrame({"X": [0.9, 0.10, 0.20]},
+                             index=pd.to_datetime(["1999-12-31"]).append(self.IDX))
+        native = pd.DataFrame({"X": [0.10, 0.20]}, index=self.IDX)
+        ba.overlap_gate(clean, native)
 
 
 class TestSpliceTailGuards:
