@@ -30,31 +30,31 @@
 
 ## 2. Headline — selected winner, OUT OF SAMPLE (TEST)
 
-- **Combo:** US Equity,International Equity,Preferred Stock,US Treasuries,Gold,Silver
-- **Scheme:** MinVar  (risk-parity family)
-- **TRAIN rank:** #1 (TRAIN score 74.8, z = +2.12)
+- **Combo:** US Equity,Preferred Stock,US Corporate Bonds,EM Bonds,Gold,Silver
+- **Scheme:** ERC  (risk-parity family)
+- **TRAIN rank:** #1 (TRAIN score 75.1, z = +2.13)
 
 | Metric | TRAIN (in-sample) | **TEST (OOS, net)** | Δ |
 |---|---:|---:|---:|
-| Net Sharpe | 0.657 | **0.921** | 0.264 |
-| Both-down ann ret (net) | -33.46% | **-30.50%** | 2.96% |
-| Max drawdown | -31.20% | **-15.65%** | 15.55% |
-| Diversification ratio | 1.743 | **1.434** | — |
-| Corr w/ equity (both-down) | 0.808 | **0.778** | — |
-| Ann turnover | 48.50% | 45.33% | — |
+| Net Sharpe | 0.722 | **0.783** | 0.062 |
+| Both-down ann ret (net) | -33.94% | **-32.44%** | 1.50% |
+| Max drawdown | -28.90% | **-18.15%** | 10.74% |
+| Diversification ratio | 1.623 | **1.451** | — |
+| Corr w/ equity (both-down) | 0.762 | **0.781** | — |
+| Ann turnover | 45.44% | 37.84% | — |
 
 - **Cap integrity (Fix 1):** winner max sleeve weight = 20.00% vs cap 20% → YES — solver output already ≤ cap (post-hoc clip is a no-op).
 
 ## 3. Statistical significance (multiple-comparison adjusted)
 
 - Trials run on TRAIN: **50706**.
-- Raw OOS net Sharpe: **0.921**.
+- Raw OOS net Sharpe: **0.783**.
 - Expected max null Sharpe over 50706 trials: 1.547 (annualized).
-- **Deflated Sharpe (annualized): -0.626**  (raw minus the luck-of-many-trials benchmark).
-- **P(true Sharpe > 0 after deflation) = 0.04** (DSR probability).
+- **Deflated Sharpe (annualized): -0.763**  (raw minus the luck-of-many-trials benchmark).
+- **P(true Sharpe > 0 after deflation) = 0.02** (DSR probability).
 
-- Block-bootstrap 95% CI on OOS net Sharpe: [0.290, 1.725]
-- Block-bootstrap 95% CI on OOS both-down ann ret: [-37.86%, -20.48%]
+- Block-bootstrap 95% CI on OOS net Sharpe: [0.143, 1.584]
+- Block-bootstrap 95% CI on OOS both-down ann ret: [-41.00%, -20.99%]
 
 > **DSR caveats (read before interpreting the headline DSR):**
 > - **Effective N ≪ nominal N.** DSR's penalty uses N = 50706 independent trials, but the trials share sleeves (any two portfolios holding US Treasuries are correlated), so the *effective* independent-
@@ -68,39 +68,38 @@
 
 | Metric | All-Weather (OOS) | Winner (OOS) |
 |---|---:|---:|
-| Ann return (net) | 7.37% | **9.29%** |
-| Ann vol | 6.99% | **10.09%** |
-| Net Sharpe | 1.055 | **0.921** |
-| Max DD | -12.31% | **-15.65%** |
-| Both-down ann ret | -18.74% | **-30.50%** |
-| Both-down hit rate | 16.67% | **12.50%** |
-| Diversification ratio | n/a | **1.434** |
-| Corr w/ equity | 0.885 | **0.825** |
-| Corr w/ bonds | 0.437 | **0.573** |
-| Crisis avg ret | -3.04% | **-6.26%** |
+| Ann return (net) | 6.03% | **7.82%** |
+| Ann vol | 7.79% | **9.98%** |
+| Net Sharpe | 0.774 | **0.783** |
+| Max DD | -16.26% | **-18.15%** |
+| Both-down ann ret | -29.27% | **-32.44%** |
+| Both-down hit rate | 4.17% | **4.17%** |
+| Diversification ratio | n/a | **1.451** |
+| Corr w/ equity | 0.827 | **0.790** |
+| Corr w/ bonds | 0.784 | **0.664** |
+| Crisis avg ret | -5.28% | **-7.22%** |
 
-Winner OOS Sharpe − All-Weather = **-0.134**; both-down ann diff = **-0.1176**.
+Winner OOS Sharpe − All-Weather = **+0.009**; both-down ann diff = **-0.0317**.
 
 ## 5. Composition vs allocation — does the weighting scheme matter? (OOS, TRAIN top-N)
 
 | Scheme | n | OOS Sharpe (avg) | OOS both-down ann (avg) | OOS maxDD (avg) | OOS div ratio (avg) | OOS score (avg) | TRAIN rank (avg) |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| InvVol | 5 | 0.829 | -31.13% | -16.09% | 1.524 | 54.6 | 37 |
-| MinVar | 21 | 0.863 | -31.50% | -16.67% | 1.455 | 53.0 | 22 |
-| InvVar | 4 | 0.813 | -32.36% | -16.66% | 1.512 | 52.9 | 38 |
-| ERC | 19 | 0.851 | -30.69% | -16.12% | 1.448 | 48.3 | 23 |
-| LS-TSMOM | 1 | 0.159 | -17.12% | -34.71% | n/a | 36.0 | 40 |
+| MinVar | 22 | 0.818 | -33.31% | -18.24% | 1.437 | 53.3 | 24 |
+| InvVol | 4 | 0.773 | -32.58% | -18.04% | 1.502 | 50.7 | 31 |
+| ERC | 20 | 0.815 | -32.27% | -17.58% | 1.446 | 49.1 | 25 |
+| InvVar | 4 | 0.769 | -32.37% | -17.95% | 1.498 | 47.9 | 30 |
 
 ## 6. Overfit diagnostics
 
 | Diagnostic | Value | Reading |
 |---|---:|---|
-| TRAIN score mean / std | 50.0 / 11.7 | field dispersion |
-| Winner TRAIN score (z) | +2.12 | OUTLIER — overfit risk |
-| Top-10 TRAIN in Top-20 TEST | 60% | selection stability |
-| Spearman TRAIN↔TEST score | +0.41 | rank persistence |
-| Winner Sharpe test−train | +0.264 | large negative ⇒ overfit |
-| Winner both-down test−train | +0.0296 | large negative ⇒ overfit |
+| TRAIN score mean / std | 50.0 / 11.8 | field dispersion |
+| Winner TRAIN score (z) | +2.13 | OUTLIER — overfit risk |
+| Top-10 TRAIN in Top-20 TEST | 50% | selection stability |
+| Spearman TRAIN↔TEST score | +0.39 | rank persistence |
+| Winner Sharpe test−train | +0.062 | large negative ⇒ overfit |
+| Winner both-down test−train | +0.0150 | large negative ⇒ overfit |
 | Effective N (vs nominal 50706) | 1.6 | DSR penalty is conservative (trials correlated) |
 
 ## 7. Rolling FULL re-enumerated selection (strictest OOS test)
@@ -108,22 +107,22 @@ Winner OOS Sharpe − All-Weather = **-0.134**; both-down ann diff = **-0.1176**
 Each January the FULL combo×scheme search is re-run on the trailing 10y window
 (data strictly prior — **not** a TRAIN shortlist) and the #1 is held for 12 months.
 
-- OOS (rolling) net Sharpe = **0.660**
-- OOS (rolling) both-down ann ret = **-38.30%**
-- OOS (rolling) max drawdown = -22.37%
-- Rolling Deflated Sharpe = -0.886  (P>0 = 0.01)
+- OOS (rolling) net Sharpe = **0.654**
+- OOS (rolling) both-down ann ret = **-39.27%**
+- OOS (rolling) max drawdown = -22.04%
+- Rolling Deflated Sharpe = -0.892  (P>0 = 0.01)
 
 | Year | Combo | Scheme | Sel score | Sel Sharpe | Top weight |
 |---:|---|---|---:|---:|---|
-| 2018 | US Equity,International Equity,Preferred Stock,US Treasuries,Gold,Silver | MinVar | 78.1 | 0.66 | US Equity 20.0% |
-| 2019 | US Equity,US REIT,US Corporate Bonds,Gold,Silver | MinVar | 74.4 | 0.71 | US Equity 20.0% |
-| 2020 | US REIT,US Corporate Bonds,EM Bonds,Gold,Silver | EW | 80.6 | 0.59 | US REIT 20.0% |
-| 2021 | US Equity,US Corporate Bonds,US Municipal Bonds,Gold,Silver | EW | 74.2 | 0.52 | US Equity 20.0% |
-| 2022 | US Equity,US REIT,Preferred Stock,US Corporate Bonds,Gold,Silver | MinVar | 71.0 | 0.98 | US REIT 20.0% |
-| 2023 | US Equity,International Equity,US Treasuries,Gold,Silver,Commodities | MinVar | 71.1 | 0.46 | US Equity 20.0% |
-| 2024 | US Equity,International Equity,US Treasuries,Gold,Silver | MinVar | 72.7 | 0.53 | US Equity 20.0% |
-| 2025 | US Equity,International Equity,US Municipal Bonds,Gold,Silver | EW | 75.5 | 0.64 | US Equity 20.0% |
-| 2026 | US Equity,International Equity,US Municipal Bonds,Gold,Silver | EW | 76.8 | 1.00 | US Equity 20.0% |
+| 2018 | US Equity,International Equity,Preferred Stock,US Treasuries,Gold,Silver | MinVar | 78.0 | 0.66 | US Equity 20.0% |
+| 2019 | US Equity,US REIT,US Corporate Bonds,Gold,Silver | EW | 74.8 | 0.71 | US Equity 20.0% |
+| 2020 | US REIT,US Corporate Bonds,EM Bonds,Gold,Silver | MinVar | 79.4 | 0.59 | US REIT 20.0% |
+| 2021 | US Equity,US Treasuries,US Corporate Bonds,Gold,Silver | MinVar | 76.4 | 0.54 | US Equity 20.0% |
+| 2022 | US Equity,US REIT,US Treasuries,US Corporate Bonds,Gold,Silver | MinVar | 72.4 | 1.01 | US Equity 20.0% |
+| 2023 | US Equity,US REIT,US Treasuries,US Corporate Bonds,Gold,Silver | MinVar | 72.9 | 0.60 | US Equity 20.0% |
+| 2024 | US Equity,International Equity,US Treasuries,Gold,Silver | EW | 74.2 | 0.49 | US Equity 20.0% |
+| 2025 | US Equity,International Equity,US Treasuries,Gold,Silver | EW | 77.2 | 0.61 | US Equity 20.0% |
+| 2026 | US Equity,International Equity,US Treasuries,Gold,Silver | EW | 78.3 | 0.97 | US Equity 20.0% |
 
 ## 9. Managed-futures (LS-TSMOM) on an equal footing (Fix 3)
 
@@ -139,25 +138,25 @@ so the comparison is measured, not assumed. This is the direct test of the brief
 stagflation)* — long/short trend is positive in 2022 precisely because it **shorts**
 the falling bonds+equities, which long-only risk parity cannot do.
 
-- **TRAIN-best LS-TSMOM combo:** US Equity, US REIT, US Treasuries, Gold, Silver
+- **TRAIN-best LS-TSMOM combo:** US Equity, US REIT, US Corporate Bonds, Gold, Silver
 - **Signal:** `pos = (1/n)·sign(trailing-12m)` per sleeve, monthly. Lookback configurable via `--tsmom-lookback`.
 
 | Metric | All-Weather (OOS) | Risk-parity winner (OOS) | **LS-TSMOM (OOS)** |
 |---|---:|---:|---:|
-| Ann return (net) | 7.37% | 9.29% | **1.87%** |
-| Ann vol | 6.99% | 10.09% | **11.77%** |
-| Net Sharpe | 1.055 | 0.921 | **0.159** |
-| Max DD | -12.31% | -15.65% | **-34.71%** |
-| Both-down ann ret | -18.74% | -30.50% | **-17.12%** |
-| Both-down hit rate | 16.67% | 12.50% | **33.33%** |
-| Corr w/ equity | 0.885 | 0.825 | **0.227** |
-| Crisis avg ret | -3.04% | -6.26% | **-6.75%** |
+| Ann return (net) | 6.03% | 7.82% | **2.31%** |
+| Ann vol | 7.79% | 9.98% | **12.28%** |
+| Net Sharpe | 0.774 | 0.783 | **0.188** |
+| Max DD | -16.26% | -18.15% | **-32.90%** |
+| Both-down ann ret | -29.27% | -32.44% | **-15.38%** |
+| Both-down hit rate | 4.17% | 4.17% | **33.33%** |
+| Corr w/ equity | 0.827 | 0.790 | **0.203** |
+| Crisis avg ret | -5.28% | -7.22% | **-6.40%** |
 
-- LS-TSMOM OOS net Sharpe: **0.159**
-- LS-TSMOM OOS both-down ann ret: **-17.12%**  (hit rate 33.33%)
-- LS-TSMOM Deflated Sharpe (annualized, n_trials = 2817): **-1.152**  (P>0 = 0.00)
-- Block-bootstrap 95% CI on LS-TSMOM OOS Sharpe: [-0.637, 1.107]
-- Block-bootstrap 95% CI on LS-TSMOM OOS both-down ann ret: [-30.18%, 0.63%]
+- LS-TSMOM OOS net Sharpe: **0.188**
+- LS-TSMOM OOS both-down ann ret: **-15.38%**  (hit rate 33.33%)
+- LS-TSMOM Deflated Sharpe (annualized, n_trials = 2817): **-1.123**  (P>0 = 0.00)
+- Block-bootstrap 95% CI on LS-TSMOM OOS Sharpe: [-0.578, 1.134]
+- Block-bootstrap 95% CI on LS-TSMOM OOS both-down ann ret: [-30.07%, 4.66%]
 
 > **Verdict:** LS-TSMOM **reduces** the both-down loss vs both All-Weather and the risk-parity winner (though still negative OOS) — directionally the trend overlay helps in the AW weak spot, but not enough to flip it positive in this window. Check the bootstrap CI before trusting the ranking.
 
@@ -165,87 +164,87 @@ the falling bonds+equities, which long-only risk parity cannot do.
 
 ## 10. TrendProtect flavor comparison menu (correlated up, protected down)
 
-The brief: find an All-Weather flavor with **higher expected return** (target: beat All-Weather's 7.37% net OOS) while keeping equity correlation **asymmetric** — correlated on the way up (capture upside), low/negative on the way down (downside protection). 12 constructions of one parameterized engine (`_backtest_flavor`), each a long base leg (annual refit, cap-respecting — MinVar by default, or equal-weight `base_mode=ew` to keep real equity weight like AW) plus active overlays: a **trend-gate** on the equity sleeves (gate to cash when their own trailing-12m return < 0, OR `gate_mode=short` to FLIP the equity sleeve to net-short on the downside signal — the direct lever for negative downside-β while keeping upside-β), a **LS-TSMOM momentum overlay** (dollar-neutral, adds gross → leverage cost), and a **structural short** (permanent sleeve-level net-short, e.g. US Treasuries for a net-short-duration tilt). Leverage cost = **5.8% APR** on gross > 1, charged monthly. Selection uses the **`--score-mode asymmetric2`** objective. Full construction + per-flavor pros/cons: [`docs/portfolio-flavors.md`](../docs/portfolio-flavors.md).
+The brief: find an All-Weather flavor with **higher expected return** (target: beat All-Weather's 6.03% net OOS) while keeping equity correlation **asymmetric** — correlated on the way up (capture upside), low/negative on the way down (downside protection). 12 constructions of one parameterized engine (`_backtest_flavor`), each a long base leg (annual refit, cap-respecting — MinVar by default, or equal-weight `base_mode=ew` to keep real equity weight like AW) plus active overlays: a **trend-gate** on the equity sleeves (gate to cash when their own trailing-12m return < 0, OR `gate_mode=short` to FLIP the equity sleeve to net-short on the downside signal — the direct lever for negative downside-β while keeping upside-β), a **LS-TSMOM momentum overlay** (dollar-neutral, adds gross → leverage cost), and a **structural short** (permanent sleeve-level net-short, e.g. US Treasuries for a net-short-duration tilt). Leverage cost = **5.8% APR** on gross > 1, charged monthly. Selection uses the **`--score-mode asymmetric2`** objective. Full construction + per-flavor pros/cons: [`docs/portfolio-flavors.md`](../docs/portfolio-flavors.md).
 
 | Portfolio | Combo | Ann ret | Sharpe | MaxDD | Both-down | Upβ | Dnβ | Dn-corr | Gross | Lev cost/yr | DSR | Sharpe CI |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| All-Weather | US Equity, US Treasuries, Gold, Commodities | 7.37% | **1.055** | -12.31% | -18.74% | 0.327 | 0.475 | 0.793 | 1.00 | 0.00% | — | — |
-| RP winner | US Equity, International Equity, Preferred Stock, US Treasuries, Gold, Silver | 9.29% | **0.921** | -15.65% | -30.50% | 0.432 | 0.585 | 0.747 | 1.00 | 0.00% | — | — |
-| TrendGate | US Equity, International Equity, US Corporate Bonds, EM Bonds, Silver, Commodities | 7.32% | **0.719** | -17.99% | -27.88% | 0.310 | 0.543 | 0.628 | 1.00 | 0.00% | -0.59 | [0.07, 1.68] |
-| EW-MA-Short | US Equity, Preferred Stock, US Treasuries, US Corporate Bonds, EM Bonds, Commodities | 4.08% | **0.687** | -12.46% | -11.24% | 0.014 | 0.125 | 0.259 | 1.00 | 0.00% | -0.62 | [-0.02, 1.52] |
-| TG-Short | International Equity, US Treasuries, US Corporate Bonds, US Municipal Bonds, EM Bonds, Silver, Commodities | 3.27% | **0.622** | -10.29% | -13.17% | 0.134 | 0.201 | 0.366 | 1.00 | 0.00% | -0.69 | [0.01, 1.46] |
-| TG-Short-6m | US Equity, US Treasuries, US Corporate Bonds, EM Bonds, Silver, Commodities | 4.62% | **0.588** | -16.31% | -20.18% | 0.110 | 0.421 | 0.513 | 1.00 | 0.00% | -0.72 | [-0.07, 1.61] |
-| TG-Short-LS | US Equity, International Equity, US Treasuries, US Corporate Bonds, EM Bonds, Silver | 4.13% | **0.448** | -20.50% | -23.99% | 0.056 | 0.294 | 0.347 | 1.20 | 1.16% | -0.86 | [-0.25, 1.29] |
-| EW-Short-6m | US Equity, US Treasuries, US Corporate Bonds, EM Bonds, Commodities | 3.30% | **0.414** | -20.58% | -20.18% | 0.091 | 0.460 | 0.542 | 1.00 | 0.00% | -0.90 | [-0.24, 1.43] |
+| RP winner | US Equity, Preferred Stock, US Corporate Bonds, EM Bonds, Gold, Silver | 7.82% | **0.783** | -18.15% | -32.44% | 0.409 | 0.589 | 0.701 | 1.00 | 0.00% | — | — |
+| All-Weather | US Equity, US Treasuries, Gold, Commodities | 6.03% | **0.774** | -16.26% | -29.27% | 0.366 | 0.423 | 0.658 | 1.00 | 0.00% | — | — |
+| EW-MA-Short | US Equity, Preferred Stock, US Corporate Bonds, EM Bonds, Commodities | 4.24% | **0.613** | -14.01% | -12.95% | 0.013 | 0.123 | 0.224 | 1.00 | 0.00% | -0.70 | [-0.08, 1.40] |
+| TrendGate | US Equity, International Equity, US Treasuries, US Corporate Bonds, EM Bonds, Silver, Commodities | 4.89% | **0.609** | -16.99% | -25.84% | 0.248 | 0.448 | 0.627 | 1.00 | 0.00% | -0.70 | [-0.09, 1.53] |
+| TG-Short-6m | US Equity, US Treasuries, US Corporate Bonds, EM Bonds, Silver, Commodities | 4.08% | **0.515** | -14.51% | -23.75% | 0.112 | 0.412 | 0.524 | 1.00 | 0.00% | -0.80 | [-0.12, 1.48] |
+| TG-Short | International Equity, US Treasuries, US Corporate Bonds, US Municipal Bonds, EM Bonds, Silver, Commodities | 2.66% | **0.488** | -14.50% | -16.65% | 0.137 | 0.179 | 0.327 | 1.00 | 0.00% | -0.82 | [-0.23, 1.28] |
+| TG-Short-LS | International Equity, US Treasuries, US Corporate Bonds, US Municipal Bonds, EM Bonds, Silver, Commodities | 2.50% | **0.441** | -14.40% | -15.68% | 0.127 | 0.117 | 0.198 | 1.20 | 1.16% | -0.87 | [-0.18, 1.17] |
 | EW-AsymMA-Short | International Equity, Preferred Stock, US Corporate Bonds, EM Bonds, Silver | 3.43% | **0.406** | -17.22% | -17.76% | -0.124 | -0.049 | -0.060 | 1.00 | 0.00% | -0.90 | [-0.28, 1.15] |
-| EW-Short | US REIT, US Treasuries, US Corporate Bonds, EM Bonds, Commodities | 2.67% | **0.348** | -20.06% | -16.68% | 0.018 | 0.561 | 0.607 | 1.00 | 0.00% | -0.96 | [-0.25, 1.50] |
-| EW-DDStop-Short | US Equity, Preferred Stock, US Corporate Bonds, EM Bonds, Commodities | 2.71% | **0.299** | -24.01% | -23.75% | 0.106 | 0.536 | 0.587 | 1.00 | 0.00% | -1.01 | [-0.35, 1.27] |
-| EW-DMA-Short | US Equity, Preferred Stock, US Treasuries, US Corporate Bonds, EM Bonds, Commodities | 2.02% | **0.273** | -20.92% | -15.83% | 0.035 | 0.396 | 0.495 | 1.00 | 0.00% | -1.04 | [-0.38, 1.26] |
-| LS-TSMOM | US Equity, US REIT, US Treasuries, Gold, Silver | 1.87% | **0.159** | -34.71% | -17.12% | -0.315 | 0.462 | 0.392 | 1.00 | 0.00% | -1.15 | [-0.64, 1.11] |
-| EW-Short-LS | US REIT, US Treasuries, US Corporate Bonds, US Municipal Bonds, EM Bonds | 0.37% | **0.057** | -15.46% | -21.28% | -0.018 | 0.472 | 0.582 | 1.20 | 1.16% | -1.25 | [-0.46, 0.91] |
-| EW-Vol-Short | US Equity, US REIT, Preferred Stock, US Corporate Bonds, EM Bonds | -1.52% | **-0.182** | -31.69% | -13.96% | -0.006 | 0.275 | 0.277 | 1.00 | 0.00% | -1.49 | [-0.75, 0.49] |
+| EW-Short-6m | US Equity, US Treasuries, US Corporate Bonds, EM Bonds, Commodities | 2.81% | **0.355** | -17.76% | -24.02% | 0.106 | 0.441 | 0.551 | 1.00 | 0.00% | -0.96 | [-0.26, 1.26] |
+| EW-DDStop-Short | US Equity, Preferred Stock, US Corporate Bonds, EM Bonds, Commodities | 2.71% | **0.299** | -24.02% | -23.72% | 0.106 | 0.536 | 0.586 | 1.00 | 0.00% | -1.01 | [-0.35, 1.27] |
+| EW-Short | US REIT, US Treasuries, US Corporate Bonds, EM Bonds, Commodities | 2.18% | **0.290** | -17.21% | -20.52% | 0.033 | 0.542 | 0.621 | 1.00 | 0.00% | -1.02 | [-0.28, 1.32] |
+| EW-DMA-Short | US Equity, Preferred Stock, US Treasuries, US Corporate Bonds, EM Bonds, Commodities | 1.61% | **0.225** | -18.59% | -19.04% | 0.047 | 0.381 | 0.515 | 1.00 | 0.00% | -1.09 | [-0.37, 1.11] |
+| LS-TSMOM | US Equity, US REIT, US Corporate Bonds, Gold, Silver | 2.31% | **0.188** | -32.90% | -15.38% | -0.306 | 0.444 | 0.361 | 1.00 | 0.00% | -1.12 | [-0.58, 1.13] |
+| EW-Short-LS | US REIT, US Treasuries, US Corporate Bonds, US Municipal Bonds, EM Bonds | -0.05% | **-0.007** | -19.42% | -24.29% | -0.009 | 0.439 | 0.541 | 1.20 | 1.16% | -1.32 | [-0.56, 0.76] |
+| EW-Vol-Short | US Equity, US REIT, Preferred Stock, US Treasuries, US Corporate Bonds | -2.15% | **-0.271** | -31.62% | -10.33% | -0.069 | 0.150 | 0.169 | 1.00 | 0.00% | -1.58 | [-0.91, 0.34] |
 
 **Reading the asymmetric columns:** Upβ = beta to equity on equity-up months; Dnβ = beta on equity-down months; Dn-corr = correlation with equity on equity-down months. A flavor that is *correlated up, protected down* has Upβ ≫ Dnβ and a low (ideally negative) Dn-corr. The 12m trend-gate *lags* by construction (it turns off ~12m into a drawdown and on ~12m into a rally), so its asymmetric profile is an empirical question this table answers, not an assumption.
 
 ### Per-flavor pros / cons
 
-**TrendGate** — combo: US Equity, International Equity, US Corporate Bonds, EM Bonds, Silver, Commodities
+**TrendGate** — combo: US Equity, International Equity, US Treasuries, US Corporate Bonds, EM Bonds, Silver, Commodities
 
-- Net ann ret 7.32% · Sharpe 0.719 · MaxDD -17.99% · both-down -27.88% · Upβ 0.310 / Dnβ 0.543 · Dn-corr 0.628 · gross 1.00 · lev cost 0.00%/yr · DSR -0.59 · Sharpe CI [0.07, 1.68]
+- Net ann ret 4.89% · Sharpe 0.609 · MaxDD -16.99% · both-down -25.84% · Upβ 0.248 / Dnβ 0.448 · Dn-corr 0.627 · gross 1.00 · lev cost 0.00%/yr · DSR -0.70 · Sharpe CI [-0.09, 1.53]
 - **Pros:** Long-only (gross ≤ 1, no leverage cost). Cuts equity exposure after a sustained drawdown — downside dampening. Keeps bond/gold/diversifier sleeves long (carry).
 - **Cons:** 12m trend-gate LAGS: long into the start of drawdowns, flat into the start of rallies → Dnβ often ≥ Upβ (the lag works against the asymmetric goal). Cannot go net-short, so no positive both-down return. Whipsaw in choppy markets (gate toggles on/off).
 
 **TG-Short** — combo: International Equity, US Treasuries, US Corporate Bonds, US Municipal Bonds, EM Bonds, Silver, Commodities
 
-- Net ann ret 3.27% · Sharpe 0.622 · MaxDD -10.29% · both-down -13.17% · Upβ 0.134 / Dnβ 0.201 · Dn-corr 0.366 · gross 1.00 · lev cost 0.00%/yr · DSR -0.69 · Sharpe CI [0.01, 1.46]
+- Net ann ret 2.66% · Sharpe 0.488 · MaxDD -14.50% · both-down -16.65% · Upβ 0.137 / Dnβ 0.179 · Dn-corr 0.327 · gross 1.00 · lev cost 0.00%/yr · DSR -0.82 · Sharpe CI [-0.23, 1.28]
 - **Pros:** Flips the equity sleeve to NET-SHORT on the downside signal (the brief's lever) — long equity when up, short equity when down; bonds/gold/diversifiers stay long. Directly targets negative downside-β with positive upside-β. Sleeve-level netting can keep gross ≤ 1 (no leverage cost) when the short equity leg nets against the long book. Reuses the MinVar base.
 - **Cons:** MinVar base starves high-vol equity to ~5-10% weight → little equity to short, so the upside capture AND the short benefit are both muted; return floor is well below AW. 12m signal lags: shorts ~12m INTO a drawdown (after the drop has happened), longs ~12m into a rally (after the rebound). Whipsaw in choppy markets; check DSR / bootstrap CI.
 
-**TG-Short-LS** — combo: US Equity, International Equity, US Treasuries, US Corporate Bonds, EM Bonds, Silver
+**TG-Short-LS** — combo: International Equity, US Treasuries, US Corporate Bonds, US Municipal Bonds, EM Bonds, Silver, Commodities
 
-- Net ann ret 4.13% · Sharpe 0.448 · MaxDD -20.50% · both-down -23.99% · Upβ 0.056 / Dnβ 0.294 · Dn-corr 0.347 · gross 1.20 · lev cost 1.16%/yr · DSR -0.86 · Sharpe CI [-0.25, 1.29]
+- Net ann ret 2.50% · Sharpe 0.441 · MaxDD -14.40% · both-down -15.68% · Upβ 0.127 / Dnβ 0.117 · Dn-corr 0.198 · gross 1.20 · lev cost 1.16%/yr · DSR -0.87 · Sharpe CI [-0.18, 1.17]
 - **Pros:** TG-Short (short equity on downside) + a 0.20 LS-TSMOM overlay — both the equity flip and the broader momentum crisis-alpha leg. Targets the asymmetric goal from two angles. Smaller overlay than RP-LS-Overlay → lower leverage cost.
 - **Cons:** Inherits the MinVar-base equity starvation AND the 12m lag AND the overlay whipsaw — all three costs. Gross can exceed 1 → leverage cost up to 1.16%/yr. Most overfitting surface of the TG-Short family; check DSR / bootstrap CI.
 
 **TG-Short-6m** — combo: US Equity, US Treasuries, US Corporate Bonds, EM Bonds, Silver, Commodities
 
-- Net ann ret 4.62% · Sharpe 0.588 · MaxDD -16.31% · both-down -20.18% · Upβ 0.110 / Dnβ 0.421 · Dn-corr 0.513 · gross 1.00 · lev cost 0.00%/yr · DSR -0.72 · Sharpe CI [-0.07, 1.61]
+- Net ann ret 4.08% · Sharpe 0.515 · MaxDD -14.51% · both-down -23.75% · Upβ 0.112 / Dnβ 0.412 · Dn-corr 0.524 · gross 1.00 · lev cost 0.00%/yr · DSR -0.80 · Sharpe CI [-0.12, 1.48]
 - **Pros:** TG-Short with a FASTER 6m trend signal — reduces the 12m lag (out of drawdowns sooner, into rallies sooner), so the short flip is better timed. Direct lever for negative downside-β. Sleeve-level netting can keep gross ≤ 1.
 - **Cons:** Faster signal whipsaws MORE in choppy markets (more false flips). MinVar base still starves equity → muted upside capture. Shorter lookback → more turnover; check DSR / bootstrap CI.
 
 **EW-Short** — combo: US REIT, US Treasuries, US Corporate Bonds, EM Bonds, Commodities
 
-- Net ann ret 2.67% · Sharpe 0.348 · MaxDD -20.06% · both-down -16.68% · Upβ 0.018 / Dnβ 0.561 · Dn-corr 0.607 · gross 1.00 · lev cost 0.00%/yr · DSR -0.96 · Sharpe CI [-0.25, 1.50]
+- Net ann ret 2.18% · Sharpe 0.290 · MaxDD -17.21% · both-down -20.52% · Upβ 0.033 / Dnβ 0.542 · Dn-corr 0.621 · gross 1.00 · lev cost 0.00%/yr · DSR -1.02 · Sharpe CI [-0.28, 1.32]
 - **Pros:** EQUAL-WEIGHT base (like All-Weather's own ~1/n across sleeves) so equity keeps a real weight (~12-25%) — fixes the MinVar-base equity starvation that left TG-Short with nothing to short and ~3% return. Short equity on the downside signal → negative downside-β with positive upside-β; return floor near AW. Sleeve-level netting can keep gross ≤ 1 (no leverage cost).
 - **Cons:** More equity weight → higher vol / drawdown than the MinVar-base flavors. 12m signal lags (consider EW-Short-6m for less lag). Equal-weight ignores covariance; check DSR / bootstrap CI.
 
 **EW-Short-LS** — combo: US REIT, US Treasuries, US Corporate Bonds, US Municipal Bonds, EM Bonds
 
-- Net ann ret 0.37% · Sharpe 0.057 · MaxDD -15.46% · both-down -21.28% · Upβ -0.018 / Dnβ 0.472 · Dn-corr 0.582 · gross 1.20 · lev cost 1.16%/yr · DSR -1.25 · Sharpe CI [-0.46, 0.91]
+- Net ann ret -0.05% · Sharpe -0.007 · MaxDD -19.42% · both-down -24.29% · Upβ -0.009 / Dnβ 0.439 · Dn-corr 0.541 · gross 1.20 · lev cost 1.16%/yr · DSR -1.32 · Sharpe CI [-0.56, 0.76]
 - **Pros:** EW-Short (real equity weight + short on downside) + a 0.20 LS-TSMOM overlay. Highest upside capture of the family (EW base keeps equity, overlay adds crisis alpha). Targets both beat-AW return AND asymmetric protection.
 - **Cons:** Gross can exceed 1 → leverage cost up to 1.16%/yr. Inherits the 12m lag and overlay whipsaw. Most overfitting surface; check DSR / bootstrap CI.
 
 **EW-Short-6m** — combo: US Equity, US Treasuries, US Corporate Bonds, EM Bonds, Commodities
 
-- Net ann ret 3.30% · Sharpe 0.414 · MaxDD -20.58% · both-down -20.18% · Upβ 0.091 / Dnβ 0.460 · Dn-corr 0.542 · gross 1.00 · lev cost 0.00%/yr · DSR -0.90 · Sharpe CI [-0.24, 1.43]
+- Net ann ret 2.81% · Sharpe 0.355 · MaxDD -17.76% · both-down -24.02% · Upβ 0.106 / Dnβ 0.441 · Dn-corr 0.551 · gross 1.00 · lev cost 0.00%/yr · DSR -0.96 · Sharpe CI [-0.26, 1.26]
 - **Pros:** EW-Short with a FASTER 6m signal — real equity weight (EW base) AND less lag, so the short flip is both meaningful and better timed. Directly targets the brief: high upside-β, negative downside-β, AW-like return floor. Sleeve-level netting can keep gross ≤ 1.
 - **Cons:** Faster signal whipsaws more; more turnover. Higher vol / drawdown than MinVar-base flavors (more equity). Most parameters → check DSR / bootstrap CI.
 
-**EW-MA-Short** — combo: US Equity, Preferred Stock, US Treasuries, US Corporate Bonds, EM Bonds, Commodities
+**EW-MA-Short** — combo: US Equity, Preferred Stock, US Corporate Bonds, EM Bonds, Commodities
 
-- Net ann ret 4.08% · Sharpe 0.687 · MaxDD -12.46% · both-down -11.24% · Upβ 0.014 / Dnβ 0.125 · Dn-corr 0.259 · gross 1.00 · lev cost 0.00%/yr · DSR -0.62 · Sharpe CI [-0.02, 1.52]
+- Net ann ret 4.24% · Sharpe 0.613 · MaxDD -14.01% · both-down -12.95% · Upβ 0.013 / Dnβ 0.123 · Dn-corr 0.224 · gross 1.00 · lev cost 0.00%/yr · DSR -0.70 · Sharpe CI [-0.08, 1.40]
 - **Pros:** EW-Short driven by a LEADING signal: price-vs-10m-SMA crossover (an MA crosses BEFORE a lookback-return flips sign), so equity exits BEFORE the drawdown and re-enters BEFORE the rally — the round-2 lagging-momentum blocker's direct fix. Real equity weight (EW base) + short-on-downside; directly targets high upside-β with negative downside-β. Sleeve-level netting can keep gross ≤ 1.
 - **Cons:** MA crossover still whipsaws in choppy/sideways tape (price oscillates around the SMA → repeated false flips). Higher vol / drawdown than MinVar-base flavors (more equity); more turnover than the 12m TSMOM gate. New signal → new overfitting surface; check DSR / bootstrap CI.
 
-**EW-Vol-Short** — combo: US Equity, US REIT, Preferred Stock, US Corporate Bonds, EM Bonds
+**EW-Vol-Short** — combo: US Equity, US REIT, Preferred Stock, US Treasuries, US Corporate Bonds
 
-- Net ann ret -1.52% · Sharpe -0.182 · MaxDD -31.69% · both-down -13.96% · Upβ -0.006 / Dnβ 0.275 · Dn-corr 0.277 · gross 1.00 · lev cost 0.00%/yr · DSR -1.49 · Sharpe CI [-0.75, 0.49]
+- Net ann ret -2.15% · Sharpe -0.271 · MaxDD -31.62% · both-down -10.33% · Upβ -0.069 / Dnβ 0.150 · Dn-corr 0.169 · gross 1.00 · lev cost 0.00%/yr · DSR -1.58 · Sharpe CI [-0.91, 0.34]
 - **Pros:** EW-Short driven by a VOL-REGIME signal: short equity when 6m realized vol EXCEEDS its trailing 60m median (vol spikes LEAD drawdowns), long when vol is calm — a regime filter, not a price-trend filter. Different information set from price-MA → diversifies the signal family; real equity weight (EW base). Sleeve-level netting can keep gross ≤ 1.
 - **Cons:** Vol spikes can lag the actual drawdown start (vol rises AS price falls, not before) — may still enter the short late. 60m median needs a long warm-up; fewer active signals in the early TEST window. New signal → new overfitting surface; check DSR / bootstrap CI.
 
 **EW-DMA-Short** — combo: US Equity, Preferred Stock, US Treasuries, US Corporate Bonds, EM Bonds, Commodities
 
-- Net ann ret 2.02% · Sharpe 0.273 · MaxDD -20.92% · both-down -15.83% · Upβ 0.035 / Dnβ 0.396 · Dn-corr 0.495 · gross 1.00 · lev cost 0.00%/yr · DSR -1.04 · Sharpe CI [-0.38, 1.26]
+- Net ann ret 1.61% · Sharpe 0.225 · MaxDD -18.59% · both-down -19.04% · Upβ 0.047 / Dnβ 0.381 · Dn-corr 0.515 · gross 1.00 · lev cost 0.00%/yr · DSR -1.09 · Sharpe CI [-0.37, 1.11]
 - **Pros:** EW-Short driven by a DUAL-MA signal: fast 3m SMA vs slow 10m SMA — a faster, smoother crossover than price-vs-SMA (the slow MA smooths the reference, so fewer false flips than EW-MA-Short). Leading signal (a fast/slow cross precedes the lookback-return flip); real equity weight (EW base) + short-on-downside. Sleeve-level netting can keep gross ≤ 1.
 - **Cons:** Fast 3m SMA is noisy → still some whipsaw; the slow 10m MA adds lag vs the single-MA gate. Two MAs → slightly more overfitting surface than EW-MA-Short. New signal → new overfitting surface; check DSR / bootstrap CI.
 
@@ -257,11 +256,11 @@ The brief: find an All-Weather flavor with **higher expected return** (target: b
 
 **EW-DDStop-Short** — combo: US Equity, Preferred Stock, US Corporate Bonds, EM Bonds, Commodities
 
-- Net ann ret 2.71% · Sharpe 0.299 · MaxDD -24.01% · both-down -23.75% · Upβ 0.106 / Dnβ 0.536 · Dn-corr 0.587 · gross 1.00 · lev cost 0.00%/yr · DSR -1.01 · Sharpe CI [-0.35, 1.27]
+- Net ann ret 2.71% · Sharpe 0.299 · MaxDD -24.02% · both-down -23.72% · Upβ 0.106 / Dnβ 0.536 · Dn-corr 0.586 · gross 1.00 · lev cost 0.00%/yr · DSR -1.01 · Sharpe CI [-0.35, 1.27]
 - **Pros:** ASYMMETRIC trailing-stop gate — the most direct map to the brief: LONG until the equity sleeve drawdown from its trailing 6m peak exceeds 10% (FAST exit — a clear break), then SHORT until it recovers inside 3% of the peak (SLOW re-entry, near a new high). 'Flee the break, wait for a new high.' Inherently asymmetric: the trigger is 'you've fallen >10%', the re-entry is 'you've made a new high' — quick to flee, slow to return, exactly the brief's shape. Real equity weight (EW base) + short-on-downside; sleeve-level netting can keep gross <= 1.
 - **Cons:** Drawdown thresholds (10% exit / 3% re-entry) are tuned → overfitting surface; the 6m peak window is a parameter. A slow grind-down (2018, 2022) can hit the 10% stop late vs a fast crash; a V-rebound (2020) re-enters late (needs a new 6m high). New signal → check DSR / bootstrap CI; one TRAIN/TEST split = one regime.
 
-> **Verdict:** None of the 12 TrendProtect flavors beat All-Weather's net OOS return (7.37%) after the 5.8%/yr leverage cost in this window — the honest, measured answer. The flavors still shift the asymmetric profile (see Upβ / Dnβ / Dn-corr); whether the downside protection is worth the return drag is a judgment call the table surfaces. Check DSR / bootstrap Sharpe CI for significance (flavors share sleeves → DSR conservative; one split = one regime).
+> **Verdict:** None of the 12 TrendProtect flavors beat All-Weather's net OOS return (6.03%) after the 5.8%/yr leverage cost in this window — the honest, measured answer. The flavors still shift the asymmetric profile (see Upβ / Dnβ / Dn-corr); whether the downside protection is worth the return drag is a judgment call the table surfaces. Check DSR / bootstrap Sharpe CI for significance (flavors share sleeves → DSR conservative; one split = one regime).
 
 ## 8. Caveats (what is and is NOT fixed)
 

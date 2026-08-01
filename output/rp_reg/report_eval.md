@@ -30,31 +30,31 @@
 
 ## 2. Headline — selected winner, OUT OF SAMPLE (TEST)
 
-- **Combo:** US Equity,US Treasuries,US Municipal Bonds,Gold,Silver,Currency
-- **Scheme:** MinVar  (risk-parity family)
-- **TRAIN rank:** #1 (TRAIN score 84.0, z = +2.62)
+- **Combo:** US Equity,US Treasuries,US Corporate Bonds,US Municipal Bonds,Gold,Silver,Currency
+- **Scheme:** ERC  (risk-parity family)
+- **TRAIN rank:** #1 (TRAIN score 83.4, z = +2.65)
 
 | Metric | TRAIN (in-sample) | **TEST (OOS, net)** | Δ |
 |---|---:|---:|---:|
-| Net Sharpe | 0.967 | **1.518** | 0.551 |
-| Both-down ann ret (net) | -9.82% | **-11.42%** | -1.60% |
-| Max drawdown | -15.97% | **-5.61%** | 10.36% |
-| Diversification ratio | 2.353 | **2.047** | — |
-| Corr w/ equity (both-down) | 0.500 | **0.713** | — |
-| Ann turnover | 43.01% | 37.79% | — |
+| Net Sharpe | 1.094 | **1.111** | 0.018 |
+| Both-down ann ret (net) | -12.05% | **-14.73%** | -2.69% |
+| Max drawdown | -16.04% | **-9.00%** | 7.04% |
+| Diversification ratio | 2.247 | **1.925** | — |
+| Corr w/ equity (both-down) | 0.614 | **0.769** | — |
+| Ann turnover | 39.99% | 35.75% | — |
 
 - **Cap integrity (Fix 1):** winner max sleeve weight = 20.00% vs cap 20% → YES — solver output already ≤ cap (post-hoc clip is a no-op).
 
 ## 3. Statistical significance (multiple-comparison adjusted)
 
 - Trials run on TRAIN: **14085**.
-- Raw OOS net Sharpe: **1.518**.
+- Raw OOS net Sharpe: **1.111**.
 - Expected max null Sharpe over 14085 trials: 1.447 (annualized).
-- **Deflated Sharpe (annualized): 0.071**  (raw minus the luck-of-many-trials benchmark).
-- **P(true Sharpe > 0 after deflation) = 0.58** (DSR probability).
+- **Deflated Sharpe (annualized): -0.335**  (raw minus the luck-of-many-trials benchmark).
+- **P(true Sharpe > 0 after deflation) = 0.17** (DSR probability).
 
-- Block-bootstrap 95% CI on OOS net Sharpe: [0.919, 2.308]
-- Block-bootstrap 95% CI on OOS both-down ann ret: [-15.01%, -5.97%]
+- Block-bootstrap 95% CI on OOS net Sharpe: [0.421, 1.965]
+- Block-bootstrap 95% CI on OOS both-down ann ret: [-18.03%, -10.70%]
 
 > **DSR caveats (read before interpreting the headline DSR):**
 > - **Effective N ≪ nominal N.** DSR's penalty uses N = 14085 independent trials, but the trials share sleeves (any two portfolios holding US Treasuries are correlated), so the *effective* independent-
@@ -62,45 +62,45 @@
 >   so DSR ≤ 0 here is a **conservative** upper bound on the multiple-comparison penalty — the edge may be more significant than DSR suggests, not less. (A proper OOS multiple-comparison test — Holm/Bonferroni over the effective N, or DSR applied to the TRAIN max — is future work.)
 > - **DSR is applied to the OOS Sharpe of the TRAIN-selected winner** (a non-canonical but accepted variant of Bailey & López de Prado 2014), not to the in-sample max Sharpe. Combined with the effective-N point, treat the headline DSR as a conservative guardrail, not a precise p-value.
 
-> **Interpretation:** Deflated Sharpe > 0: the edge survives the multiple-comparison adjustment (but still check the bootstrap CI and rolling §7).
+> **Interpretation:** Deflated Sharpe ≤ 0 **and** the both-down CI is entirely negative: there is **no statistically robust resilience** to the both-down scenario among these investable sleeves — the best portfolio is the least-bad, not a positive-return hedge.
 
 ## 4. Winner vs All-Weather on TEST (out-of-sample, net of cost)
 
 | Metric | All-Weather (OOS) | Winner (OOS) |
 |---|---:|---:|
-| Ann return (net) | 7.37% | **7.50%** |
-| Ann vol | 6.99% | **4.94%** |
-| Net Sharpe | 1.055 | **1.518** |
-| Max DD | -12.31% | **-5.61%** |
-| Both-down ann ret | -18.74% | **-11.42%** |
-| Both-down hit rate | 16.67% | **20.83%** |
-| Diversification ratio | n/a | **2.047** |
-| Corr w/ equity | 0.885 | **0.762** |
-| Corr w/ bonds | 0.437 | **0.587** |
-| Crisis avg ret | -3.04% | **-1.29%** |
+| Ann return (net) | 6.03% | **5.23%** |
+| Ann vol | 7.79% | **4.71%** |
+| Net Sharpe | 0.774 | **1.111** |
+| Max DD | -16.26% | **-9.00%** |
+| Both-down ann ret | -29.27% | **-14.73%** |
+| Both-down hit rate | 4.17% | **4.17%** |
+| Diversification ratio | n/a | **1.925** |
+| Corr w/ equity | 0.827 | **0.735** |
+| Corr w/ bonds | 0.784 | **0.808** |
+| Crisis avg ret | -5.28% | **-2.75%** |
 
-Winner OOS Sharpe − All-Weather = **+0.463**; both-down ann diff = **+0.0732**.
+Winner OOS Sharpe − All-Weather = **+0.337**; both-down ann diff = **+0.1453**.
 
 ## 5. Composition vs allocation — does the weighting scheme matter? (OOS, TRAIN top-N)
 
 | Scheme | n | OOS Sharpe (avg) | OOS both-down ann (avg) | OOS maxDD (avg) | OOS div ratio (avg) | OOS score (avg) | TRAIN rank (avg) |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| MinVar | 16 | 1.323 | -11.47% | -6.47% | 2.053 | 54.4 | 24 |
-| InvVar | 8 | 1.281 | -11.92% | -6.14% | 2.047 | 52.5 | 27 |
-| EW | 3 | 1.391 | -13.14% | -6.64% | 2.001 | 49.8 | 20 |
-| ERC | 15 | 1.293 | -11.88% | -6.46% | 2.025 | 48.5 | 26 |
-| InvVol | 8 | 1.264 | -12.41% | -6.44% | 2.015 | 47.8 | 28 |
+| EW | 3 | 1.211 | -16.15% | -9.37% | 1.921 | 55.7 | 20 |
+| MinVar | 20 | 1.110 | -14.64% | -9.34% | 2.010 | 54.6 | 26 |
+| InvVar | 5 | 1.122 | -15.50% | -9.22% | 1.946 | 53.9 | 25 |
+| InvVol | 5 | 1.128 | -15.94% | -9.28% | 1.931 | 51.9 | 25 |
+| ERC | 17 | 1.100 | -16.41% | -9.75% | 1.933 | 44.9 | 26 |
 
 ## 6. Overfit diagnostics
 
 | Diagnostic | Value | Reading |
 |---|---:|---|
-| TRAIN score mean / std | 50.0 / 13.0 | field dispersion |
-| Winner TRAIN score (z) | +2.62 | OUTLIER — overfit risk |
-| Top-10 TRAIN in Top-20 TEST | 90% | selection stability |
-| Spearman TRAIN↔TEST score | +0.44 | rank persistence |
-| Winner Sharpe test−train | +0.551 | large negative ⇒ overfit |
-| Winner both-down test−train | -0.0160 | large negative ⇒ overfit |
+| TRAIN score mean / std | 50.0 / 12.6 | field dispersion |
+| Winner TRAIN score (z) | +2.65 | OUTLIER — overfit risk |
+| Top-10 TRAIN in Top-20 TEST | 80% | selection stability |
+| Spearman TRAIN↔TEST score | +0.41 | rank persistence |
+| Winner Sharpe test−train | +0.018 | large negative ⇒ overfit |
+| Winner both-down test−train | -0.0269 | large negative ⇒ overfit |
 | Effective N (vs nominal 14085) | 1.2 | DSR penalty is conservative (trials correlated) |
 
 ## 7. Rolling FULL re-enumerated selection (strictest OOS test)
@@ -128,6 +128,13 @@ the falling bonds+equities, which long-only risk parity cannot do.
 
 > LS-TSMOM was **not run** this invocation. Re-run with
 > `--schemes EW,InvVol,InvVar,ERC,MinVar,LS-TSMOM` to populate this section.
+
+## 10. TrendProtect flavor comparison menu (correlated up, protected down)
+
+The brief: find an All-Weather flavor with **higher expected return** (target: beat All-Weather's 6.03% net OOS) while keeping equity correlation **asymmetric** — correlated on the way up (capture upside), low/negative on the way down (downside protection). 0 constructions of one parameterized engine (`_backtest_flavor`), each a long base leg (annual refit, cap-respecting — MinVar by default, or equal-weight `base_mode=ew` to keep real equity weight like AW) plus active overlays: a **trend-gate** on the equity sleeves (gate to cash when their own trailing-12m return < 0, OR `gate_mode=short` to FLIP the equity sleeve to net-short on the downside signal — the direct lever for negative downside-β while keeping upside-β), a **LS-TSMOM momentum overlay** (dollar-neutral, adds gross → leverage cost), and a **structural short** (permanent sleeve-level net-short, e.g. US Treasuries for a net-short-duration tilt). Leverage cost = **5.8% APR** on gross > 1, charged monthly. Selection uses the **`--score-mode default`** objective. Full construction + per-flavor pros/cons: [`docs/portfolio-flavors.md`](../docs/portfolio-flavors.md).
+
+> No TrendProtect flavors ran this invocation. Re-run with
+> `--schemes EW,InvVol,InvVar,ERC,MinVar,LS-TSMOM,TrendGate,RP-LS-Overlay,StructShort,TG-LS-Overlay` to populate this section.
 
 ## 8. Caveats (what is and is NOT fixed)
 
