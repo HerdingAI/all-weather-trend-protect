@@ -610,12 +610,132 @@ class TestExtendedVsNativeGate:
 
 
 class TestSpliceTailGuards:
+    def test_multi_month_tail_refuses_to_splice(self):
+        # One month at the archive's ragged edge is a defensible seam. Several
+        # means the daily archive is stale, and silently switching construction
+        # over a long span is the invisible change this builder guards against.
+        native = pd.DataFrame(
+            {"X": [0.1, 0.2, 0.3, 0.4]},
+            index=pd.to_datetime(["2000-01-31", "2000-02-29", "2000-03-31",
+                                  "2000-04-30"]))
+        extended = native.iloc[:1]
+        with pytest.raises(SystemExit) as e:
+            ba.splice_tail(extended, native)
+        assert "3 months" in str(e.value)
+
+    def test_single_month_tail_still_splices(self):
+        native = pd.DataFrame({"X": [0.1, 0.2]},
+                              index=pd.to_datetime(["2000-01-31", "2000-02-29"]))
+        out, tail = ba.splice_tail(native.iloc[:1], native)
+        assert len(tail) == 1 and len(out) == 2
+
     def test_empty_extended_raises_rather_than_discarding_everything(self):
         native = pd.DataFrame({"X": [0.1, 0.2]},
                               index=pd.to_datetime(["2000-01-31", "2000-02-29"]))
         empty = native.iloc[:0]
         with pytest.raises(ValueError):
             ba.splice_tail(empty, native)
+
+
+class TestGatesEndToEnd:
+    """The gates are the last thing standing between a bad rebuild and published
+    research, and until now only their `_max_abs_diff` helper was tested. These
+    exercise the gate functions themselves.
+    """
+
+    IDX = pd.to_datetime(["2000-01-31", "2000-02-29"])
+
+    def _frames(self):
+        native = pd.DataFrame({"US Equity": [0.01, 0.02],
+                               "US Treasuries": [0.003, 0.004]}, index=self.IDX)
+        return native, native.copy()
+
+    def test_delta_gate_passes_when_only_expected_sleeves_change(self, monkeypatch):
+        legacy, clean = self._frames()
+        clean["US Treasuries"] = [0.09, 0.09]          # an EXPECTED sleeve
+        monkeypatch.setattr(ba, "EXPECTED_CHANGED", {"US Treasuries"})
+        ba.delta_gate(legacy, clean)
+
+    def test_delta_gate_rejects_an_unexpected_sleeve(self, monkeypatch):
+        legacy, clean = self._frames()
+        clean["US Equity"] = [0.09, 0.09]              # NOT in the expected set
+        monkeypatch.setattr(ba, "EXPECTED_CHANGED", {"US Treasuries"})
+        with pytest.raises(SystemExit) as e:
+            ba.delta_gate(legacy, clean)
+        assert "US Equity" in str(e.value)
+
+    def test_delta_gate_treats_a_removed_sleeve_as_changed(self, monkeypatch):
+        legacy, clean = self._frames()
+        clean = clean.drop(columns=["US Treasuries"])
+        monkeypatch.setattr(ba, "EXPECTED_CHANGED", set())
+        with pytest.raises(SystemExit):
+            ba.delta_gate(legacy, clean)
+
+    def test_reproduction_gate_accepts_the_matching_construction(self, tmp_path,
+                                                                 monkeypatch):
+        native, legacy = self._frames()
+        target = tmp_path / "ac.csv"
+        native.to_csv(target)
+        monkeypatch.setattr(ba, "AC_CSV", str(target))
+        ba.reproduction_gate(native, legacy)           # native matches the file
+
+    def test_reproduction_gate_rejects_when_nothing_matches(self, tmp_path,
+                                                            monkeypatch):
+        native, legacy = self._frames()
+        target = tmp_path / "ac.csv"
+        (native * 3.0).to_csv(target)
+        monkeypatch.setattr(ba, "AC_CSV", str(target))
+        with pytest.raises(SystemExit):
+            ba.reproduction_gate(native, legacy)
+
+    def test_accept_rebuild_downgrades_the_failure(self, tmp_path, monkeypatch,
+                                                   capsys):
+        native, legacy = self._frames()
+        target = tmp_path / "ac.csv"
+        (native * 3.0).to_csv(target)
+        monkeypatch.setattr(ba, "AC_CSV", str(target))
+        ba.reproduction_gate(native, legacy, accept_rebuild=True)
+        out = capsys.readouterr().out
+        assert "accept-rebuild" in out and "What changed" in out
+
+
+class TestMinMonthCoverageBoundary:
+    """The sparse test is strict (`<`), so exactly-50% coverage is KEPT. That is
+    a real boundary decision worth pinning rather than rediscovering."""
+
+    def _panel(self, ticker_days):
+        rows = []
+        for d in pd.bdate_range("2026-01-01", "2026-03-31"):
+            rows.append((d, "MKT", 0.0))
+            if d.month != 2 or d.day in ticker_days:
+                rows.append((d, "A", 0.01))
+        return pd.DataFrame(rows, columns=["date", "ticker", "daily_return"])
+
+    def _feb_days(self):
+        return sorted({d.day for d in pd.bdate_range("2026-02-01", "2026-02-28")})
+
+    def test_exactly_half_coverage_is_kept(self):
+        days = self._feb_days()
+        keep = days[: len(days) // 2]                  # exactly 50%
+        out = ba.daily_to_monthly_returns(self._panel(keep), complete_only=True)
+        assert not pd.isna(out.loc[pd.Timestamp("2026-02-28"), "A"])
+
+    def test_below_half_coverage_is_dropped(self):
+        days = self._feb_days()
+        keep = days[: len(days) // 2 - 1]               # just under 50%
+        out = ba.daily_to_monthly_returns(self._panel(keep), complete_only=True)
+        assert pd.isna(out.loc[pd.Timestamp("2026-02-28"), "A"])
+
+
+class TestMonthEndLevelsOrdering:
+    """`.last()` takes the last value in ROW order, not the latest by date, so
+    the month-end sample's correctness depended on the caller's sort order."""
+
+    def test_unsorted_input_still_takes_the_chronologically_last_value(self):
+        idx = pd.to_datetime(["2000-01-20", "2000-01-05", "2000-02-03"])
+        px = pd.DataFrame({"^TNX": [6.5, 6.0, 5.0]}, index=idx)   # deliberately unsorted
+        out = ba.month_end_levels(px)
+        assert out.loc[pd.Timestamp("2000-01-31"), "^TNX"] == 6.5
 
 
 class TestUniverseReconciliation:

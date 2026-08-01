@@ -100,15 +100,21 @@ def build_cmd(cfg: dict) -> list[str]:
     return cmd
 
 
-def run_one(cfg: dict, log_dir: str) -> dict:
+def run_one(cfg: dict, log_dir: str, timeout: float) -> dict:
     env = dict(os.environ)
     env.update(OMP_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1",
                MKL_NUM_THREADS="1", NUMEXPR_NUM_THREADS="1")
     log_path = os.path.join(log_dir, f"{cfg['dir']}.log")
     t0 = time.time()
     with open(log_path, "w") as log:
-        rc = subprocess.call(build_cmd(cfg), stdout=log, stderr=subprocess.STDOUT,
-                             cwd=HERE, env=env)
+        try:
+            # Bounded so a hung round cannot hold a --jobs slot forever and
+            # stall the whole batch (the largest real round takes ~1h).
+            rc = subprocess.run(build_cmd(cfg), stdout=log, stderr=subprocess.STDOUT,
+                                cwd=HERE, env=env, timeout=timeout).returncode
+        except subprocess.TimeoutExpired:
+            log.write(f"\n\n*** killed by rerun_reports after {timeout}s ***\n")
+            rc = -1
     return {**cfg, "rc": rc, "secs": time.time() - t0, "log": log_path}
 
 
@@ -125,6 +131,10 @@ def main(argv=None) -> int:
                     help="Recover configs from a configs.json written by an "
                          "earlier run, instead of re-parsing the reports. Use "
                          "when a report was corrupted by an interrupted write.")
+    ap.add_argument("--timeout", type=float, default=6 * 3600,
+                    help="Per-round wall-clock cap in seconds (default 6h). A "
+                         "round that exceeds it is killed and reported rc=-1 "
+                         "rather than holding a slot forever.")
     ap.add_argument("--log-dir", default=os.path.join(HERE, "output", "_rerun_logs"))
     args = ap.parse_args(argv)
 
@@ -187,7 +197,7 @@ def main(argv=None) -> int:
 
     results, t0 = [], time.time()
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:
-        futs = {pool.submit(run_one, c, args.log_dir): c for c in cfgs}
+        futs = {pool.submit(run_one, c, args.log_dir, args.timeout): c for c in cfgs}
         for fut in as_completed(futs):
             r = fut.result()
             results.append(r)

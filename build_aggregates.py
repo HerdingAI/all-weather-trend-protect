@@ -47,12 +47,16 @@ import sys
 import numpy as np
 import pandas as pd
 
-# pull_returns is import-safe as of the __main__ guard; importing it keeps the
-# ticker universe and the return-series policy defined in exactly one place.
-from pull_returns import (  # noqa: E402
+# universe.py is side-effect free: it holds the ticker list, the return-series
+# policy, and the equal-weighted aggregation, with no yfinance import and no
+# network configuration. Importing pull_returns here would drag the downloader
+# into an offline rebuild for the sake of four constants.
+from universe import (  # noqa: E402
     ALL_TICKERS,
     NON_RETURN_KINDS,
     NON_RETURN_TICKERS,
+    aggregatable_groups,
+    equal_weight,
     is_return_series,
 )
 
@@ -77,44 +81,8 @@ MIN_MONTH_COVERAGE = 0.5
 
 
 # --------------------------------------------------------------------------- #
-# Grouping
+# Panel assembly
 # --------------------------------------------------------------------------- #
-
-def aggregatable_groups(meta: dict, available, legacy: bool = False) -> dict:
-    """asset_class -> [tickers] eligible for the equal-weighted return aggregate.
-
-    `legacy=True` reproduces the pre-fix rule (yield/price-only levels included),
-    which the reproduction gate needs in order to prove we are starting from the
-    same inputs that produced the published file.
-    """
-    available = set(available)
-    groups: dict[str, list[str]] = {}
-    for ticker, m in meta.items():
-        if ticker not in available:
-            continue
-        asset_class = m[1]
-        if asset_class.startswith("Sector-") or asset_class == "Equity (single stock)":
-            continue  # single stocks + sector ETFs are aggregated separately
-        if not legacy and not is_return_series(ticker, m):
-            continue  # yield/price-only levels are not returns
-        groups.setdefault(asset_class, []).append(ticker)
-    return groups
-
-
-def equal_weight(wide: pd.DataFrame, groups: dict) -> pd.DataFrame:
-    """Time-varying equal-weighted mean per asset class.
-
-    Uses only the constituents with data in a given month, so coverage expands
-    as tickers inception over time. A month with no constituent stays NaN.
-    """
-    out = pd.DataFrame(index=wide.index)
-    for ac, tks in groups.items():
-        cols = [t for t in tks if t in wide.columns]
-        if not cols:
-            continue
-        out[ac] = wide[cols].mean(axis=1, skipna=True)
-    return out.dropna(how="all").sort_index()
-
 
 def splice_tail(extended: pd.DataFrame, native: pd.DataFrame):
     """Carry TAIL months the extended panel lacks over from the native panel.
@@ -139,6 +107,17 @@ def splice_tail(extended: pd.DataFrame, native: pd.DataFrame):
     tail = [d for d in native.index if d > extended.index.max()]
     if not tail:
         return extended, []
+    if len(tail) > 1:
+        # The seam is only defensible because it is ONE month at the archive's
+        # ragged edge. A multi-month tail means the daily archive is stale, and
+        # silently switching construction for a long span is exactly the kind of
+        # invisible change this builder exists to prevent.
+        raise SystemExit(
+            f"splice_tail: the extended panel ends {str(extended.index.max())[:7]} "
+            f"but the monthly panel reaches {str(native.index.max())[:7]} "
+            f"({len(tail)} months). Refusing to splice more than one month -- "
+            "refresh the daily archive (pull_daily.py) instead of mixing "
+            "constructions across a long span.")
     out = pd.concat([extended, native.loc[tail].reindex(columns=extended.columns)])
     return out.sort_index(), list(tail)
 
