@@ -371,6 +371,42 @@ for sector, tickers in STOCK_SECTORS.items():
 ALL_TICKERS = {**ASSET_TICKERS, **STOCKS}
 
 # ---------------------------------------------------------------------------
+# 2b. RETURN-SERIES POLICY  (single source of truth; also used by
+#     build_aggregates.py so the offline builder and a live re-pull agree)
+#
+#     Some tickers are carried in the price matrices for continuity but their
+#     pct_change is NOT a return, so they must never enter a return aggregate:
+#       - YIELD kind (^TNX/^FVX/^TYX) are yield LEVELS. Yields move opposite to
+#         bond prices, so averaging them into a bond sleeve inverts it -- the
+#         published US Treasuries sleeve correlated -0.51 with a clean rebuild
+#         and understated return by 289 bps/yr.
+#       - ^VIX is likewise a level, and is the sole member of "Volatility", so
+#         excluding it removes that asset class from the aggregates entirely.
+#       - The broad equity indices are price-only (no dividends) where every
+#         other constituent is total-return.
+#
+#     NOTE: these tickers stay in the ticker-level outputs and price matrices.
+#     risk_parity_seasons.py legitimately reads the ^TNX yield LEVEL as an
+#     inflation-regime signal; only return AGGREGATION is affected.
+# ---------------------------------------------------------------------------
+NON_RETURN_KINDS = {"YIELD"}
+NON_RETURN_TICKERS = {
+    "^GSPC", "^DJI", "^IXIC", "^RUT",   # price-only indices (no dividends)
+    "^VIX",                              # a level, not a holdable return stream
+}
+
+
+def is_return_series(ticker: str, meta: tuple) -> bool:
+    """True if this ticker's pct_change is a genuine total return, i.e. it may
+    enter an asset-class/sector return aggregate.
+
+    meta[2] is the `kind` for asset tickers and the GICS sector for single
+    stocks; single stocks never carry a NON_RETURN_KINDS value, so the same
+    test is safe for both tuple schemas.
+    """
+    return ticker not in NON_RETURN_TICKERS and meta[2] not in NON_RETURN_KINDS
+
+# ---------------------------------------------------------------------------
 # 3. DOWNLOAD  monthly history (period='max', interval='1mo')
 #    Uses _download_batched() to respect Yahoo rate limits.
 # ---------------------------------------------------------------------------
@@ -379,219 +415,239 @@ def download_all(tickers: list[str]) -> pd.DataFrame:
     indexed by month-end date with one column per ticker (adjusted close)."""
     return _download_batched(tickers, interval="1mo", period="max")
 
-prices = download_all(list(ALL_TICKERS.keys()))
-print("Raw prices shape:", prices.shape)
-print("Date range:", prices.index.min(), "->", prices.index.max())
+# ---------------------------------------------------------------------------
+# 3b. PIPELINE ENTRY POINT
+#     Everything below runs ONLY as a script. Previously this executed at
+#     import time, so `import pull_returns` triggered a full Yahoo download
+#     and overwrote every monthly CSV -- pull_daily.py imports this module,
+#     and so does build_aggregates.py (for the universe + return policy).
+# ---------------------------------------------------------------------------
+def main() -> None:
+    prices = download_all(list(ALL_TICKERS.keys()))
+    print("Raw prices shape:", prices.shape)
+    print("Date range:", prices.index.min(), "->", prices.index.max())
 
-# Drop tickers that came back entirely empty
-empty = [c for c in prices.columns if prices[c].dropna().empty]
-if empty:
-    print("WARNING: no data for", empty)
-    prices = prices.drop(columns=empty)
+    # Drop tickers that came back entirely empty
+    empty = [c for c in prices.columns if prices[c].dropna().empty]
+    if empty:
+        print("WARNING: no data for", empty)
+        prices = prices.drop(columns=empty)
 
-# ---------------------------------------------------------------------------
-# 4. MONTHLY RETURNS  (pct change of adjusted close). Yields/VIX levels kept as-is
-#    in prices but NOT used in return aggregation.
-# ---------------------------------------------------------------------------
-returns = prices.pct_change()
+    # ---------------------------------------------------------------------------
+    # 4. MONTHLY RETURNS  (pct change of adjusted close). Yields/VIX levels kept as-is
+    #    in prices but NOT used in return aggregation.
+    # ---------------------------------------------------------------------------
+    returns = prices.pct_change()
 
-# ---------------------------------------------------------------------------
-# 5. LONG PANEL with metadata
-# ---------------------------------------------------------------------------
-rows = []
-for ticker in prices.columns:
-    meta = ALL_TICKERS.get(ticker)
-    if meta is None:
-        continue
-    name, asset_class, sector = meta[0], meta[1], meta[2]
-    s = returns[ticker].dropna()
-    for dt, r in s.items():
-        rows.append({
-            "date": dt,
-            "ticker": ticker,
-            "name": name,
-            "asset_class": asset_class,
-            "sector": sector,
-            "monthly_return": r,
+    # ---------------------------------------------------------------------------
+    # 5. LONG PANEL with metadata
+    # ---------------------------------------------------------------------------
+    rows = []
+    for ticker in prices.columns:
+        meta = ALL_TICKERS.get(ticker)
+        if meta is None:
+            continue
+        name, asset_class, sector = meta[0], meta[1], meta[2]
+        s = returns[ticker].dropna()
+        for dt, r in s.items():
+            rows.append({
+                "date": dt,
+                "ticker": ticker,
+                "name": name,
+                "asset_class": asset_class,
+                "sector": sector,
+                "monthly_return": r,
+            })
+    long_panel = pd.DataFrame(rows).sort_values(["asset_class","sector","ticker","date"])
+    long_panel.to_csv(os.path.join(OUT, "monthly_returns_by_ticker.csv"), index=False)
+    print("Wrote monthly_returns_by_ticker.csv rows=", len(long_panel))
+
+    # ---------------------------------------------------------------------------
+    # 6. ASSET-CLASS LEVEL  equal-weighted monthly return across constituents
+    #    (average of available tickers' returns each month within the asset class)
+    # ---------------------------------------------------------------------------
+    ac_groups = {}
+    for ticker, meta in ALL_TICKERS.items():
+        name, asset_class, sector = meta[0], meta[1], meta[2]
+        if ticker not in returns.columns:
+            continue
+        if asset_class.startswith("Sector-") or asset_class == "Equity (single stock)":
+            continue  # single stocks + sector ETFs handled separately
+        if not is_return_series(ticker, meta):
+            continue  # yield/price-only levels are not returns -- see §2b
+        ac_groups.setdefault(asset_class, []).append(ticker)
+
+    ac_wide = pd.DataFrame(index=returns.index)
+    for ac, tks in ac_groups.items():
+        sub = returns[tks]
+        ac_wide[ac] = sub.mean(axis=1, skipna=True)
+    ac_wide = ac_wide.dropna(how="all").sort_index()
+    ac_wide.to_csv(os.path.join(OUT, "monthly_returns_by_asset_class.csv"))
+    print("Wrote monthly_returns_by_asset_class.csv shape=", ac_wide.shape)
+
+    # Sector level (from sector ETFs + individual stocks)
+    sec_groups = {}
+    for ticker, meta in ALL_TICKERS.items():
+        name, asset_class, sector = meta[0], meta[1], meta[2]
+        if ticker not in returns.columns:
+            continue
+        if not is_return_series(ticker, meta):
+            continue  # yield/price-only levels are not returns -- see §2b
+        sec = sector
+        if not sec:
+            continue
+        # NOTE: `sector` here is meta[2], which holds the *kind* for asset tickers
+        # and the GICS sector only for single stocks -- so this strip never fires
+        # (the "Sector-" values live in meta[1]) and the composite columns are
+        # kinds (ETF/MUTUALFUND/...) alongside real GICS sectors.
+        if sec.startswith("Sector-"):
+            sec = sec.replace("Sector-","")
+        sec_groups.setdefault(sec, []).append(ticker)
+    sec_wide = pd.DataFrame(index=returns.index)
+    for sec, tks in sec_groups.items():
+        sub = returns[tks]
+        sec_wide[sec] = sub.mean(axis=1, skipna=True)
+    sec_wide = sec_wide.dropna(how="all").sort_index()
+    sec_wide.to_csv(os.path.join(OUT, "monthly_returns_by_sector.csv"))
+    print("Wrote monthly_returns_by_sector.csv shape=", sec_wide.shape)
+
+    # Stock-only sector aggregation (so sector returns reflect single stocks only)
+    stock_sec = {}
+    for ticker, (name, asset_class, sector) in STOCKS.items():
+        if ticker not in returns.columns:
+            continue
+        stock_sec.setdefault(sector, []).append(ticker)
+    stock_sec_wide = pd.DataFrame(index=returns.index)
+    for sec, tks in stock_sec.items():
+        sub = returns[tks]
+        stock_sec_wide[sec] = sub.mean(axis=1, skipna=True)
+    stock_sec_wide = stock_sec_wide.dropna(how="all").sort_index()
+    stock_sec_wide.to_csv(os.path.join(OUT, "monthly_returns_by_sector_stocks_only.csv"))
+    print("Wrote monthly_returns_by_sector_stocks_only.csv shape=", stock_sec_wide.shape)
+
+    # ---------------------------------------------------------------------------
+    # 7. PRICES (wide) + UNIVERSE + COVERAGE SUMMARY
+    # ---------------------------------------------------------------------------
+    prices.to_csv(os.path.join(OUT, "monthly_prices.csv"))
+
+    uni_rows = []
+    for ticker, meta in ALL_TICKERS.items():
+        name, asset_class, sector = meta[0], meta[1], meta[2]
+        if ticker in prices.columns:
+            s = prices[ticker].dropna()
+            first = s.index.min(); last = s.index.max(); n = len(s)
+        else:
+            first=last=pd.NaT; n=0
+        uni_rows.append({"ticker":ticker,"name":name,"asset_class":asset_class,
+                         "sector":sector,"first_month":first,"last_month":last,
+                         "n_months":n,"present":ticker in prices.columns})
+    uni = pd.DataFrame(uni_rows)
+    uni.to_csv(os.path.join(OUT, "universe.csv"), index=False)
+
+    cov_rows = []
+    for ticker in returns.columns:
+        meta = ALL_TICKERS.get(ticker)
+        if meta is None: continue
+        name, asset_class, sector = meta[0], meta[1], meta[2]
+        s = returns[ticker].dropna()
+        if s.empty:
+            continue
+        cov_rows.append({
+            "ticker":ticker,"name":name,"asset_class":asset_class,"sector":sector,
+            "first_month":s.index.min(),"last_month":s.index.max(),"n_months":len(s),
+            "ann_return_pct": (s.mean()*12)*100,
+            "ann_vol_pct": (s.std()* (12**0.5))*100,
+            "min_month_pct": s.min()*100,
+            "max_month_pct": s.max()*100,
+            "pct_positive_months": (s>0).mean()*100,
         })
-long_panel = pd.DataFrame(rows).sort_values(["asset_class","sector","ticker","date"])
-long_panel.to_csv(os.path.join(OUT, "monthly_returns_by_ticker.csv"), index=False)
-print("Wrote monthly_returns_by_ticker.csv rows=", len(long_panel))
+    cov = pd.DataFrame(cov_rows).sort_values(["asset_class","sector","ticker"])
+    cov.to_csv(os.path.join(OUT, "coverage_summary.csv"), index=False)
+    print("Wrote coverage_summary.csv rows=", len(cov))
 
-# ---------------------------------------------------------------------------
-# 6. ASSET-CLASS LEVEL  equal-weighted monthly return across constituents
-#    (average of available tickers' returns each month within the asset class)
-# ---------------------------------------------------------------------------
-ac_groups = {}
-for ticker, meta in ALL_TICKERS.items():
-    name, asset_class, sector = meta[0], meta[1], meta[2]
-    if ticker not in returns.columns:
-        continue
-    if asset_class.startswith("Sector-") or asset_class == "Equity (single stock)":
-        continue  # single stocks + sector ETFs handled separately
-    ac_groups.setdefault(asset_class, []).append(ticker)
+    # Asset-class level coverage stats
+    ac_cov_rows = []
+    for ac, tks in ac_groups.items():
+        s = ac_wide[ac].dropna()
+        if s.empty: continue
+        ac_cov_rows.append({"asset_class":ac,"first_month":s.index.min(),"last_month":s.index.max(),
+                            "n_months":len(s),"ann_return_pct":(s.mean()*12)*100,
+                            "ann_vol_pct":(s.std()*(12**0.5))*100,
+                            "min_month_pct":s.min()*100,"max_month_pct":s.max()*100})
+    pd.DataFrame(ac_cov_rows).to_csv(os.path.join(OUT, "asset_class_summary.csv"), index=False)
 
-ac_wide = pd.DataFrame(index=returns.index)
-for ac, tks in ac_groups.items():
-    sub = returns[tks]
-    ac_wide[ac] = sub.mean(axis=1, skipna=True)
-ac_wide = ac_wide.dropna(how="all").sort_index()
-ac_wide.to_csv(os.path.join(OUT, "monthly_returns_by_asset_class.csv"))
-print("Wrote monthly_returns_by_asset_class.csv shape=", ac_wide.shape)
+    # ---------------------------------------------------------------------------
+    # 8. README
+    # ---------------------------------------------------------------------------
+    def _fmt(d): return d.strftime("%Y-%m") if isinstance(d, pd.Timestamp) else str(d)
+    readme = f"""# Monthly Returns Across Asset Classes
 
-# Sector level (from sector ETFs + individual stocks)
-sec_groups = {}
-for ticker, meta in ALL_TICKERS.items():
-    name, asset_class, sector = meta[0], meta[1], meta[2]
-    if ticker not in returns.columns:
-        continue
-    sec = sector
-    if not sec:
-        continue
-    if sec.startswith("Sector-"):
-        sec = sec.replace("Sector-","")
-    sec_groups.setdefault(sec, []).append(ticker)
-sec_wide = pd.DataFrame(index=returns.index)
-for sec, tks in sec_groups.items():
-    sub = returns[tks]
-    sec_wide[sec] = sub.mean(axis=1, skipna=True)
-sec_wide = sec_wide.dropna(how="all").sort_index()
-sec_wide.to_csv(os.path.join(OUT, "monthly_returns_by_sector.csv"))
-print("Wrote monthly_returns_by_sector.csv shape=", sec_wide.shape)
+    Generated: {datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")}
+    Source: Yahoo Finance via `yfinance` v{yf.__version__}. Prices are **auto-adjusted**
+    (split + dividend adjusted = total-return close) for ETFs/stocks, so monthly
+    returns are **total returns**. Broad indices (^GSPC, ^DJI, ^IXIC, ^RUT, ^VIX) are
+    price-only (no dividends). ^TNX is a **yield level**, not a price -- it is kept in
+    `monthly_prices.csv` but excluded from return aggregations.
 
-# Stock-only sector aggregation (so sector returns reflect single stocks only)
-stock_sec = {}
-for ticker, (name, asset_class, sector) in STOCKS.items():
-    if ticker not in returns.columns:
-        continue
-    stock_sec.setdefault(sector, []).append(ticker)
-stock_sec_wide = pd.DataFrame(index=returns.index)
-for sec, tks in stock_sec.items():
-    sub = returns[tks]
-    stock_sec_wide[sec] = sub.mean(axis=1, skipna=True)
-stock_sec_wide = stock_sec_wide.dropna(how="all").sort_index()
-stock_sec_wide.to_csv(os.path.join(OUT, "monthly_returns_by_sector_stocks_only.csv"))
-print("Wrote monthly_returns_by_sector_stocks_only.csv shape=", stock_sec_wide.shape)
+    ## Universe
+    - Asset-class tickers: {len(ASSET_TICKERS)}  (ETFs + broad indices for longest history)
+    - Individual stocks: {len(STOCKS)}  (large US caps across {len(STOCK_SECTORS)} GICS sectors)
+    - Total series pulled: {len(ALL_TICKERS)}
 
-# ---------------------------------------------------------------------------
-# 7. PRICES (wide) + UNIVERSE + COVERAGE SUMMARY
-# ---------------------------------------------------------------------------
-prices.to_csv(os.path.join(OUT, "monthly_prices.csv"))
+    ## Files (./output)
+    | File | Description |
+    |---|---|
+    | `monthly_returns_by_ticker.csv` | Long panel: every ticker's monthly return with asset_class/sector labels |
+    | `monthly_returns_by_asset_class.csv` | Wide: equal-weighted monthly return per asset class |
+    | `monthly_returns_by_sector.csv` | Wide: equal-weighted monthly return per sector (sector ETFs + stocks) |
+    | `monthly_returns_by_sector_stocks_only.csv` | Wide: sector return from individual stocks only |
+    | `monthly_prices.csv` | Wide: monthly adjusted close per ticker |
+    | `universe.csv` | Ticker metadata + first/last month + month count |
+    | `coverage_summary.csv` | Per-series coverage + annualized return/vol + monthly min/max |
+    | `asset_class_summary.csv` | Asset-class-level coverage + stats |
 
-uni_rows = []
-for ticker, meta in ALL_TICKERS.items():
-    name, asset_class, sector = meta[0], meta[1], meta[2]
-    if ticker in prices.columns:
-        s = prices[ticker].dropna()
-        first = s.index.min(); last = s.index.max(); n = len(s)
-    else:
-        first=last=pd.NaT; n=0
-    uni_rows.append({"ticker":ticker,"name":name,"asset_class":asset_class,
-                     "sector":sector,"first_month":first,"last_month":last,
-                     "n_months":n,"present":ticker in prices.columns})
-uni = pd.DataFrame(uni_rows)
-uni.to_csv(os.path.join(OUT, "universe.csv"), index=False)
+    ## Coverage (as far back as Yahoo provides, monthly interval)
+    Overall date range: **{_fmt(prices.index.min())} -> {_fmt(prices.index.max())}**
+    ({len(prices)} months)
 
-cov_rows = []
-for ticker in returns.columns:
-    meta = ALL_TICKERS.get(ticker)
-    if meta is None: continue
-    name, asset_class, sector = meta[0], meta[1], meta[2]
-    s = returns[ticker].dropna()
-    if s.empty:
-        continue
-    cov_rows.append({
-        "ticker":ticker,"name":name,"asset_class":asset_class,"sector":sector,
-        "first_month":s.index.min(),"last_month":s.index.max(),"n_months":len(s),
-        "ann_return_pct": (s.mean()*12)*100,
-        "ann_vol_pct": (s.std()* (12**0.5))*100,
-        "min_month_pct": s.min()*100,
-        "max_month_pct": s.max()*100,
-        "pct_positive_months": (s>0).mean()*100,
-    })
-cov = pd.DataFrame(cov_rows).sort_values(["asset_class","sector","ticker"])
-cov.to_csv(os.path.join(OUT, "coverage_summary.csv"), index=False)
-print("Wrote coverage_summary.csv rows=", len(cov))
+    Longest series:
+    """
+    top10 = cov.sort_values("first_month").head(10)
+    for _,r in top10.iterrows():
+        readme += f"- {r['ticker']:7s} {r['name'][:42]:42s} {_fmt(r['first_month'])} -> {_fmt(r['last_month'])} ({r['n_months']} mo)\n"
 
-# Asset-class level coverage stats
-ac_cov_rows = []
-for ac, tks in ac_groups.items():
-    s = ac_wide[ac].dropna()
-    if s.empty: continue
-    ac_cov_rows.append({"asset_class":ac,"first_month":s.index.min(),"last_month":s.index.max(),
-                        "n_months":len(s),"ann_return_pct":(s.mean()*12)*100,
-                        "ann_vol_pct":(s.std()*(12**0.5))*100,
-                        "min_month_pct":s.min()*100,"max_month_pct":s.max()*100})
-pd.DataFrame(ac_cov_rows).to_csv(os.path.join(OUT, "asset_class_summary.csv"), index=False)
+    readme += """
+    ## Methodology
+    1. Pull monthly history: `yf.download(tickers, period='max', interval='1mo', auto_adjust=True)`.
+    2. Monthly return = adjusted close pct_change (month-over-month). Returns indexed to
+       month-end timestamps.
+    3. Asset-class returns = equal-weighted mean of constituent tickers' monthly returns
+       each month (using available tickers). Single stocks and sector ETFs are excluded
+       from the asset-class aggregate to avoid double counting; sectors get their own file.
+    4. Sector returns = equal-weighted mean across sector ETF + individual stocks in that
+       sector. A stocks-only sector file is also produced.
 
-# ---------------------------------------------------------------------------
-# 8. README
-# ---------------------------------------------------------------------------
-def _fmt(d): return d.strftime("%Y-%m") if isinstance(d, pd.Timestamp) else str(d)
-readme = f"""# Monthly Returns Across Asset Classes
+    ## Notes / caveats
+    - Yahoo monthly history for indices generally starts 1985; ETFs start at inception.
+      Using the longest-history index per asset class maximizes how far back we can go.
+    - Total-return vs price-return: ETF/stock returns include dividends; index returns
+      (^GSPC etc.) are price-only and will understate total return by the dividend yield.
+    - Equal-weighting is used for aggregation (no market-cap weights across ETFs/indexes).
+    - Data is for research/illustration; not investment advice.
 
-Generated: {datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")}
-Source: Yahoo Finance via `yfinance` v{yf.__version__}. Prices are **auto-adjusted**
-(split + dividend adjusted = total-return close) for ETFs/stocks, so monthly
-returns are **total returns**. Broad indices (^GSPC, ^DJI, ^IXIC, ^RUT, ^VIX) are
-price-only (no dividends). ^TNX is a **yield level**, not a price -- it is kept in
-`monthly_prices.csv` but excluded from return aggregations.
+    ## Reproduce
+    ```bash
+    .venv/bin/python pull_returns.py
+    ```
+    """
+    with open(os.path.join(OUT,"README.md"),"w") as f:
+        f.write(readme)
+    print("Wrote README.md")
 
-## Universe
-- Asset-class tickers: {len(ASSET_TICKERS)}  (ETFs + broad indices for longest history)
-- Individual stocks: {len(STOCKS)}  (large US caps across {len(STOCK_SECTORS)} GICS sectors)
-- Total series pulled: {len(ALL_TICKERS)}
+    print("\n=== DONE ===")
+    print("Overall:", _fmt(prices.index.min()), "->", _fmt(prices.index.max()), f"({len(prices)} months)")
+    print("Output dir:", OUT)
 
-## Files (./output)
-| File | Description |
-|---|---|
-| `monthly_returns_by_ticker.csv` | Long panel: every ticker's monthly return with asset_class/sector labels |
-| `monthly_returns_by_asset_class.csv` | Wide: equal-weighted monthly return per asset class |
-| `monthly_returns_by_sector.csv` | Wide: equal-weighted monthly return per sector (sector ETFs + stocks) |
-| `monthly_returns_by_sector_stocks_only.csv` | Wide: sector return from individual stocks only |
-| `monthly_prices.csv` | Wide: monthly adjusted close per ticker |
-| `universe.csv` | Ticker metadata + first/last month + month count |
-| `coverage_summary.csv` | Per-series coverage + annualized return/vol + monthly min/max |
-| `asset_class_summary.csv` | Asset-class-level coverage + stats |
 
-## Coverage (as far back as Yahoo provides, monthly interval)
-Overall date range: **{_fmt(prices.index.min())} -> {_fmt(prices.index.max())}**
-({len(prices)} months)
-
-Longest series:
-"""
-top10 = cov.sort_values("first_month").head(10)
-for _,r in top10.iterrows():
-    readme += f"- {r['ticker']:7s} {r['name'][:42]:42s} {_fmt(r['first_month'])} -> {_fmt(r['last_month'])} ({r['n_months']} mo)\n"
-
-readme += """
-## Methodology
-1. Pull monthly history: `yf.download(tickers, period='max', interval='1mo', auto_adjust=True)`.
-2. Monthly return = adjusted close pct_change (month-over-month). Returns indexed to
-   month-end timestamps.
-3. Asset-class returns = equal-weighted mean of constituent tickers' monthly returns
-   each month (using available tickers). Single stocks and sector ETFs are excluded
-   from the asset-class aggregate to avoid double counting; sectors get their own file.
-4. Sector returns = equal-weighted mean across sector ETF + individual stocks in that
-   sector. A stocks-only sector file is also produced.
-
-## Notes / caveats
-- Yahoo monthly history for indices generally starts 1985; ETFs start at inception.
-  Using the longest-history index per asset class maximizes how far back we can go.
-- Total-return vs price-return: ETF/stock returns include dividends; index returns
-  (^GSPC etc.) are price-only and will understate total return by the dividend yield.
-- Equal-weighting is used for aggregation (no market-cap weights across ETFs/indexes).
-- Data is for research/illustration; not investment advice.
-
-## Reproduce
-```bash
-.venv/bin/python pull_returns.py
-```
-"""
-with open(os.path.join(OUT,"README.md"),"w") as f:
-    f.write(readme)
-print("Wrote README.md")
-
-print("\n=== DONE ===")
-print("Overall:", _fmt(prices.index.min()), "->", _fmt(prices.index.max()), f"({len(prices)} months)")
-print("Output dir:", OUT)
+if __name__ == "__main__":
+    main()
