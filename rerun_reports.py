@@ -55,6 +55,13 @@ EVAL_DIRS = [
     "risk_parity_eval_asym9",
 ]
 
+# The regression-guard runs. Their whole purpose was byte-identity against the
+# numbers they were baselined on, so a legitimate data change breaks every one
+# of them; they are re-baselined in the SAME pass rather than left failing.
+REG_DIRS = [f"rp_reg{n}" for n in ("", "2", "3", "4", "5", "6", "7", "8")]
+
+ALL_DIRS = EVAL_DIRS + REG_DIRS
+
 # Rounds 2b onward were run with a reduced bootstrap; earlier rounds used the
 # argparse default (5000). --rolling-schemes is omitted throughout because the
 # documented value is identical to the default.
@@ -66,10 +73,10 @@ SCORE_RE = re.compile(r"--score-mode\s+(asymmetric2|asymmetric|default)")
 
 def parse_config(dirname: str) -> dict:
     """Recover a round's actual configuration from its committed report."""
-    if dirname not in EVAL_DIRS:
+    if dirname not in ALL_DIRS:
         raise SystemExit(
-            f"{dirname!r} is not a known eval round.\nKnown rounds:\n  "
-            + "\n  ".join(EVAL_DIRS))
+            f"{dirname!r} is not a known round.\nKnown rounds:\n  "
+            + "\n  ".join(ALL_DIRS))
     report = os.path.join(OUT, dirname, "report_eval.md")
     if not os.path.exists(report):
         raise SystemExit(f"{dirname}: no report_eval.md to recover config from")
@@ -81,11 +88,17 @@ def parse_config(dirname: str) -> dict:
     schemes = [s.strip() for s in m.group(1).split(",") if s.strip()]
 
     score = SCORE_RE.search(text)
+    # The rolling pass leaves rolling_selection_log.csv behind, so its absence
+    # is the evidence that the run used --no-rolling. Guessing wrong here would
+    # either add a section the baseline never had or drop one it did.
+    rolling_log = os.path.join(OUT, dirname, "rolling_selection_log.csv")
     return {
         "dir": dirname,
         "schemes": schemes,
         "score_mode": score.group(1) if score else "default",
-        "bootstrap": 2000 if EVAL_DIRS.index(dirname) >= BOOTSTRAP_2000_FROM else None,
+        "bootstrap": (2000 if dirname in EVAL_DIRS
+                      and EVAL_DIRS.index(dirname) >= BOOTSTRAP_2000_FROM else None),
+        "no_rolling": not os.path.exists(rolling_log),
     }
 
 
@@ -97,6 +110,8 @@ def build_cmd(cfg: dict) -> list[str]:
         cmd += ["--score-mode", cfg["score_mode"]]
     if cfg["bootstrap"]:
         cmd += ["--bootstrap", str(cfg["bootstrap"])]
+    if cfg.get("no_rolling"):
+        cmd += ["--no-rolling"]
     return cmd
 
 
@@ -125,6 +140,8 @@ def main(argv=None) -> int:
                     help="Concurrent runs. Sized by RAM, not cores (default 4).")
     ap.add_argument("--only", action="append", default=None,
                     help="Run just this output dir (repeatable).")
+    ap.add_argument("--eval-only", action="store_true",
+                    help="Skip the rp_reg* regression guards.")
     ap.add_argument("--list", action="store_true",
                     help="Print the recovered commands and exit.")
     ap.add_argument("--from-snapshot", metavar="PATH",
@@ -141,7 +158,8 @@ def main(argv=None) -> int:
     if args.jobs < 1:
         raise SystemExit(f"--jobs must be >= 1 (got {args.jobs})")
 
-    targets = list(dict.fromkeys(args.only or EVAL_DIRS))   # de-dup: two runs
+    targets = list(dict.fromkeys(
+        args.only or (EVAL_DIRS if args.eval_only else ALL_DIRS)))   # de-dup: two runs
     if args.from_snapshot:                                  # into one out-dir race
         with open(args.from_snapshot) as fh:
             by_dir = {c["dir"]: c for c in json.load(fh)}

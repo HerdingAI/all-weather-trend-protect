@@ -68,8 +68,29 @@ class TestParseConfig:
 
     def test_unknown_round_is_rejected_with_the_known_list(self):
         with pytest.raises(SystemExit) as e:
-            rr.parse_config("rp_reg2")
-        assert "not a known eval round" in str(e.value)
+            rr.parse_config("risk_parity_seasons")
+        assert "not a known round" in str(e.value)
+        assert "risk_parity_eval_asym9" in str(e.value)
+
+    def test_regression_guards_are_known_rounds(self):
+        # They are re-baselined in the same pass; a legitimate data change
+        # breaks every byte-identity guard, so leaving them out means leaving
+        # them permanently red.
+        assert set(rr.REG_DIRS) <= set(rr.ALL_DIRS)
+        assert len(rr.ALL_DIRS) == len(rr.EVAL_DIRS) + len(rr.REG_DIRS)
+
+    def test_no_rolling_is_detected_from_the_rolling_log(self, tmp_path,
+                                                         monkeypatch):
+        d = _write(tmp_path, "rp_reg", REPORT)
+        monkeypatch.setattr(rr, "OUT", str(tmp_path))
+        assert rr.parse_config("rp_reg")["no_rolling"] is True
+        (d / "rolling_selection_log.csv").write_text("year,combo\n")
+        assert rr.parse_config("rp_reg")["no_rolling"] is False
+
+    def test_no_rolling_reaches_the_command(self, tmp_path, monkeypatch):
+        _write(tmp_path, "rp_reg", REPORT)
+        monkeypatch.setattr(rr, "OUT", str(tmp_path))
+        assert "--no-rolling" in rr.build_cmd(rr.parse_config("rp_reg"))
 
     def test_missing_report_is_rejected(self, tmp_path, monkeypatch):
         (tmp_path / "risk_parity_eval_asym9").mkdir(parents=True)

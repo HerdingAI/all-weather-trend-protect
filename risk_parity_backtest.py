@@ -522,6 +522,14 @@ def run_digital_pass(ret: pd.DataFrame, args, base_aw_metrics: Dict[str,float]) 
         args.exclude_volatility = False
     if args.exclude_volatility and "Volatility" in sleeves:
         sleeves.remove("Volatility")
+
+    missing = [x for x in sleeves if x not in ret.columns]
+    if missing:
+        raise SystemExit(
+            f"Requested sleeve(s) not in the asset-class panel: {missing}. "
+            "The Volatility sleeve was removed because ^VIX is a level, not a "
+            "return series (docs/methodology.md \u00a74); drop --include-volatility."
+        )
     avail = available_sleeves_over_window(ret, sleeves, start, end)
     eq_avail = [s for s in EQUITY_SLEEVES if s in avail]
     bd_avail = [s for s in BOND_SLEEVES if s in avail]

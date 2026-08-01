@@ -2041,6 +2041,23 @@ def main(argv=None) -> int:
     ret = load_monthly_returns()
     sleeves = default_sleeves(args.include_volatility)
 
+    # A requested sleeve that the panel does not carry must fail with a reason.
+    # `available_sleeves` indexes the panel directly, so a missing column
+    # otherwise surfaces as a bare KeyError. This fires for --include-volatility
+    # since the ^VIX sleeve was removed from the aggregates: a volatility index
+    # is a level, not a holdable return stream (docs/methodology.md §4).
+    missing = [s for s in sleeves if s not in ret.columns]
+    if missing:
+        raise SystemExit(
+            f"Requested sleeve(s) not present in the asset-class panel: {missing}\n"
+            f"Panel has {len(ret.columns)} sleeves spanning "
+            f"{str(ret.index.min())[:7]}..{str(ret.index.max())[:7]}.\n"
+            + ("The Volatility sleeve was removed because ^VIX is a level, not a\n"
+               "return series -- see docs/methodology.md §4. Drop "
+               "--include-volatility.\n" if "Volatility" in missing else "")
+            + "Rebuild the panel with build_aggregates.py --extended if this is "
+              "unexpected.")
+
     avail_tr = available_sleeves(ret, sleeves, tr_s, tr_e)
     avail_te = available_sleeves(ret, sleeves, te_s, te_e)
     avail = [s for s in avail_tr if s in avail_te]
