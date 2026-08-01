@@ -22,34 +22,47 @@ cost where gross > 1). Pick the row that matches the regime you expect.
 
 | Circumstance | Tool | Ann ret | Sharpe | Upβ | Dnβ | Both-down | Dn-corr |
 |---|---|---:|---:|---:|---:|---:|---:|
-| **Stagflation** — stocks+bonds both fall (2022) | **EW-Infl-Both** | −0.16% | −0.01 | 0.44 | 0.32 | **−2.69%** | 0.29 |
-| **Disinflation + growth down** (2008/2020) | **EW-Infl-Dur** | 6.79% | 0.59 | 0.54 | 0.71 | −30.11% | 0.68 |
-| **Normal / growth up**, smooth ride | **All-Weather** | 7.37% | **1.06** | 0.33 | 0.48 | −18.74% | 0.79 |
-| **Growth up**, want return, accept correlated downside | **RP winner (MinVar)** | 8.43% | 0.61 | 0.63 | 0.94 | −43.12% | 0.76 |
-| **Trending up** (momentum leads) | **EW-Scale-Mom6** | 8.50% | 0.61 | 0.43 | 0.65 | −46.50% | 0.59 |
-| **Structural short-duration**, no signal | **StructShort** | 9.35% | 0.77 | 0.53 | 0.72 | −33.96% | 0.74 |
-| **Balanced** — upside + downside dampening | **EW-MA-Short** | 4.25% | 0.61 | 0.01 | 0.12 | −12.97% | 0.22 |
-| **Fast mechanical drawdown hedge** (short duration) | **EW-Hedge-Dur-MA** | 2.28% | 0.30 | −0.03 | 0.24 | −12.10% | 0.33 |
-| **Crisis-alpha / uncorrelated sleeve** | **LS-TSMOM** | 2.60% | 0.25 | −0.28 | 0.35 | −11.31% | 0.32 |
+| **Stagflation** — stocks+bonds both fall (2022) | **EW-Infl-Both** | −0.17% | −0.02 | 0.44 | 0.32 | **−2.70%** | 0.29 |
+| **Disinflation + growth down** (2008/2020) | **EW-Infl-Dur** | 6.79% | 0.59 | 0.54 | 0.71 | −30.08% | 0.67 |
+| **Normal / growth up**, smooth ride | **All-Weather** | 6.03% | **0.77** | 0.37 | 0.42 | −29.27% | 0.66 |
+| **Structural short-duration**, no signal | **StructShort** | **9.34%** | **0.77** | 0.53 | 0.72 | −33.94% | 0.73 |
+| **Trending up** (momentum leads) | **EW-Scale-Mom6** | 8.48% | 0.61 | 0.43 | 0.65 | −46.46% | 0.59 |
+| **Growth up**, want return, accept correlated downside | **RP winner (MinVar)** | 8.43% | 0.61 | 0.62 | 0.94 | −43.09% | 0.76 |
+| **Balanced** — upside + downside dampening | **EW-MA-Short** | 4.24% | 0.61 | 0.01 | 0.12 | −12.95% | 0.22 |
+| **Fast mechanical drawdown hedge** (short duration) | **EW-Hedge-Dur-MA** | 1.92% | 0.24 | −0.03 | 0.25 | −13.41% | 0.33 |
+| **Crisis-alpha / uncorrelated sleeve** | **LS-TSMOM** | 2.69% | 0.25 | −0.27 | 0.34 | −10.40% | 0.31 |
+
+> **Regenerated 2026-08-01 on corrected bond data.** Every number above moved, but
+> only one moved *materially*: **All-Weather**. Its Sharpe falls **1.055 → 0.774**,
+> return 7.37% → 6.03%, both-down −18.74% → −29.27%.
+>
+> The reason is composition, not a second defect. All-Weather is a *fixed*
+> allocation holding **55% US Treasuries** — the sleeve that was contaminated with
+> yield levels (see `docs/nuances_and_caveats.md` Nuance 2) — while every searched
+> flavor selected combos containing **no Treasuries at all**. Only the fixed book
+> was exposed.
+>
+> **This changes the headline claim.** All-Weather's smoothness in this dataset was
+> substantially an artifact of an inverted, artificially low-volatility bond
+> series. On clean data **StructShort (0.771) effectively ties it (0.774) while
+> earning 331 bps/yr more**, so "nothing beat its Sharpe" is no longer a
+> meaningful statement at a 0.003 gap.
 
 How to read it:
 
-- **EW-Infl-Both** is a defensive hedge — the best both-down of the set (−2.69% vs
-  All-Weather's −18.74%) and the only flavor with Upβ > Dnβ. Return ≈ 0, so it's a
-  protection sleeve, not a return strategy.
-- **EW-Infl-Dur** adds long duration when inflation is *falling* — bonds hedge equity for
-  free in disinflation (2008/2020) and it keeps return near All-Weather.
-- **All-Weather** is the smoothest ride; nothing beat its Sharpe. Reach for the others when
-  you have a view on the regime.
-- **EW-Scale-Mom6** scales gross with momentum — owns ~1.27× in up-months, de-risks in
-  down-months. It's the trending-market tool; it fails when momentum lags the turn (the 2022
-  both-down shows the failure mode).
-- **StructShort** is a permanent net-short-duration tilt — no signal, no lag, gross 1.0 so
-  no leverage cost. It pays a carry drag in every non-stagflation year.
-- **EW-MA-Short** is the balanced pick — positive upside beta, a both-down better than
-  All-Weather, and the lowest downside correlation of any flavor with positive return.
-- **LS-TSMOM** is long/short trend — positive in 2022 because it shorts the falling legs, but
-  its upside beta is negative, so it diversifies rather than captures.
+- **StructShort** is now the value pick: a permanent net-short-duration tilt, no
+  signal, no lag, gross 1.0 so no leverage cost — matching All-Weather's Sharpe
+  while earning 9.34% against 6.03%. It pays a carry drag in every non-stagflation
+  year, which is the trade.
+- **All-Weather** is still the lowest max-drawdown book (−16.26%), but it no longer
+  dominates on risk-adjusted return, and its both-down is now *worse* than several
+  alternatives.
+- **EW-Infl-Both** is a protection sleeve, not a return strategy — the best
+  both-down of the set (−2.70% vs All-Weather's −29.27%) at roughly zero return.
+- **EW-MA-Short** is the balanced pick: the lowest downside correlation (0.22) of
+  any flavor with positive return, and a both-down of −12.95%.
+- **LS-TSMOM** is the only flavor with negative upside beta — it diversifies rather
+  than captures.
 
 Full per-flavor construction, composition, and the per-round menus:
 [`docs/portfolio-flavors.md`](docs/portfolio-flavors.md). Full comparison table (all 47):
@@ -57,7 +70,7 @@ Full per-flavor construction, composition, and the per-round menus:
 
 ## The canonical risk-parity portfolio
 
-Four-seasons walk-forward, 1985–2026, ~41 years, every month out-of-sample (selected on
+Four-seasons walk-forward, 1986–2026, ~40 years, every month out-of-sample (selected on
 prior data only). Long-only, 20% per-sleeve cap, Ledoit-Wolf shrinkage, 10 bps costs. The
 winner is re-selected each fold, so the time-averaged allocation is the honest picture:
 
@@ -66,25 +79,24 @@ winner is re-selected each fold, so the time-averaged allocation is the honest p
 | US Corporate Bonds | 20.0% | LQD |
 | US Municipal Bonds | 20.0% | MUB |
 | US Treasuries | 20.0% | IEF / TLT blend |
-| US Equity | 17.8% | VTI |
-| World Equity | 15.5% | ACWI |
-| International Equity | 14.8% | VXUS |
-| Gold / Precious Metals | 13.6% | VGPMX / gold-futures TR |
+| US Equity | 20.0% | VTI |
+| World Equity | 16.5% | ACWI |
+| Gold / Precious Metals | 11.1% | VGPMX / gold-futures TR |
 
-Out-of-sample (1995–2026, 30.9y): 6.27% CAGR, Sharpe 0.79, max drawdown −25.1%. The per-regime
+Out-of-sample (1996–2026, 29.6y): 6.03% CAGR, Sharpe 0.72, max drawdown −24.5%. All-Weather over the same span: 6.84% CAGR, Sharpe 0.91 — the searched winner does **not** beat it on risk-adjusted return. The per-regime
 view is the useful part — it tells you when this long-only book is enough and when to reach
 for a hedge:
 
 | Season | All-Weather | Winner |
 |---|---:|---:|
-| Growth up, inflation up | 0.72% | 0.61% |
-| Growth up, inflation down | 0.73% | 0.80% |
-| Growth down, inflation down | −0.05% | 0.08% |
-| Growth down, inflation up *(stagflation)* | −0.81% | −0.90% |
+| Growth up, inflation up | 0.40% | **0.43%** |
+| Growth up, inflation down | **0.87%** | 0.84% |
+| Growth down, inflation down | **0.64%** | 0.39% |
+| Growth down, inflation up *(stagflation)* | −0.68% | −0.90% |
 
 Stagflation is where the long-only book and All-Weather both struggle — that's the
 circumstance the TrendProtect hedges above are for. Full report:
-[`output/risk_parity_seasons/report_seasons.md`](output/risk_parity_seasons/report_seasons.md).
+[`output/risk_parity_seasons_long1986/report_seasons.md`](output/risk_parity_seasons_long1986/report_seasons.md).
 
 ## The flavors, by round
 

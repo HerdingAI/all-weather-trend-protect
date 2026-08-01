@@ -75,6 +75,39 @@ See also the peer review: [`docs/peer-review.md`](peer-review.md).
 
 ---
 
+
+> ## ⚠️ Superseded numbers — read this first (2026-08-01)
+>
+> Every measured figure below predates the bond-data correction. The
+> asset-class aggregates had Treasury **yield levels** averaged into the
+> `US Treasuries` return sleeve, which *inverted* it (corr −0.51 against a clean
+> rebuild, −289 bps/yr). See `docs/nuances_and_caveats.md` Nuance 2.
+>
+> All 20 evaluation rounds were regenerated on corrected data. **The regenerated
+> reports under `output/` are authoritative; the per-round menus in §5–§5i below
+> are kept as the research audit trail, not as current numbers.**
+>
+> What actually changed, measured: only **All-Weather** moved materially.
+>
+> | Portfolio | Ann ret | Sharpe | Both-down |
+> |---|---|---|---|
+> | All-Weather | 7.37% → **6.03%** | 1.055 → **0.774** | −18.74% → **−29.27%** |
+> | StructShort | 9.35% → 9.34% | 0.771 → 0.771 | −33.96% → −33.94% |
+> | RP winner | 8.43% → 8.43% | 0.609 → 0.609 | −43.12% → −43.09% |
+> | EW-MA-Short | 4.25% → 4.24% | 0.613 → 0.613 | −12.97% → −12.95% |
+>
+> The asymmetry is composition, not a second defect: All-Weather is a *fixed*
+> book holding **55% US Treasuries**, while every searched flavor selected combos
+> containing **no Treasuries at all**. Only the fixed allocation was exposed.
+>
+> **Consequence for §0's argument.** §0 is written around All-Weather as the
+> smooth baseline every flavor is measured against — "nothing beat its Sharpe".
+> That premise no longer holds: **StructShort (0.771) ties All-Weather (0.774)
+> while earning 331 bps/yr more**. Read §0's *structural* findings (what each
+> lever does, and why upside and downside beta trade off) as still valid, and its
+> *ranking* claims as superseded.
+
+
 ## The playbook — which tool for which circumstance
 
 The TrendProtect flavors are a toolkit, not a single portfolio. Each one is built for one
@@ -84,16 +117,16 @@ row that matches the regime you expect.
 
 | Circumstance | Tool | Ann ret | Sharpe | Upβ | Dnβ | Both-down | Dn-corr |
 |---|---|---:|---:|---:|---:|---:|---:|
-| **Stagflation** — stocks+bonds both fall (2022) | **EW-Infl-Both** | −0.16% | −0.01 | 0.436 | 0.316 | **−2.69%** | 0.289 |
-| **Asymmetry, widest gap** (stagflation, less defensive) | **EW-Infl-BothL** | 0.22% | 0.017 | 0.522 | 0.422 | −7.26% | 0.318 |
-| **Disinflation + growth down** (2008/2020) | **EW-Infl-Dur** | 6.79% | 0.587 | 0.542 | 0.711 | −30.11% | 0.675 |
-| **Normal / growth up**, smooth ride | **All-Weather** | 7.37% | **1.055** | 0.327 | 0.475 | −18.74% | 0.793 |
-| **Growth up**, want return, accept correlated downside | **RP winner (MinVar)** | 8.43%† | 0.609 | 0.625 | 0.937 | −43.12% | 0.762 |
-| **Trending up** (momentum leads) | **EW-Scale-Mom6** | 8.50% | 0.609 | 0.427 | 0.651 | −46.50% | 0.594 |
-| **Structural short-duration**, no signal | **StructShort** | 9.35% | 0.771 | 0.528 | 0.716 | −33.96% | 0.735 |
-| **Balanced** — upside + downside dampening | **EW-MA-Short** | 4.25% | 0.613 | 0.013 | 0.123 | −12.97% | 0.224 |
-| **Fast mechanical drawdown hedge** (short duration) | **EW-Hedge-Dur-MA** | 2.28% | 0.296 | −0.025 | 0.243 | −12.10% | 0.334 |
-| **Crisis-alpha / uncorrelated sleeve** | **LS-TSMOM** | 2.60% | 0.248 | −0.275 | 0.350 | −11.31% | 0.324 |
+| **Stagflation** — stocks+bonds both fall (2022) | **EW-Infl-Both** | −0.17% | −0.015 | 0.437 | 0.316 | **−2.70%** | 0.290 |
+| **Asymmetry, widest gap** (stagflation, less defensive) | **EW-Infl-BothL** | 0.21% | 0.016 | 0.523 | 0.422 | −7.27% | 0.318 |
+| **Disinflation + growth down** (2008/2020) | **EW-Infl-Dur** | 6.79% | 0.587 | 0.541 | 0.712 | −30.08% | 0.674 |
+| **Normal / growth up**, lowest drawdown | **All-Weather** | 6.03% | **0.774** | 0.366 | 0.423 | −29.27% | 0.658 |
+| **Best return at All-Weather's Sharpe** | **StructShort** | **9.34%** | **0.771** | 0.528 | 0.716 | −33.94% | 0.734 |
+| **Trending up** (momentum leads) | **EW-Scale-Mom6** | 8.48% | 0.608 | 0.426 | 0.652 | −46.46% | 0.594 |
+| **Growth up**, want return, accept correlated downside | **RP winner (MinVar)** | 8.43% | 0.609 | 0.624 | 0.937 | −43.09% | 0.762 |
+| **Balanced** — upside + downside dampening | **EW-MA-Short** | 4.24% | 0.613 | 0.013 | 0.123 | −12.95% | 0.224 |
+| **Fast mechanical drawdown hedge** (short duration) | **EW-Hedge-Dur-MA** | 1.92% | 0.238 | −0.032 | 0.248 | −13.41% | 0.329 |
+| **Crisis-alpha / uncorrelated sleeve** | **LS-TSMOM** | 2.69% | 0.250 | −0.274 | 0.336 | −10.40% | 0.308 |
 
 > **†** The RP winner is selected by the same `asymmetric2` relative-percentile score pool
 > as the TrendProtect flavors, so its TRAIN-best combo shifts when the pool expands (9.94% /
