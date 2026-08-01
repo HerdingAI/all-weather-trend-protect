@@ -314,6 +314,40 @@ class TestAssetClassSummary:
         assert "C" not in set(ba.asset_class_summary(p)["asset_class"])
 
 
+class TestDescribeDelta:
+    """--accept-rebuild waives the reproduction gate. Asserting that a change is
+    expected is not the same as agreeing to an unexamined one, so the waiver has
+    to show WHAT moved -- otherwise an unintended sleeve rides along with the
+    intended one, which is how the 2026-05 error stayed invisible."""
+
+    IDX = pd.to_datetime(["2000-01-31", "2000-02-29"])
+
+    def test_reports_a_changed_sleeve_with_magnitude(self):
+        pub = pd.DataFrame({"X": [0.10, 0.20], "Y": [0.30, 0.40]}, index=self.IDX)
+        new = pub.copy()
+        new.loc[self.IDX[1], "Y"] = 0.4050
+        lines = " | ".join(ba.describe_delta(new, pub))
+        assert "Y:" in lines and "50.0 bps" in lines
+        assert "X:" not in lines
+
+    def test_reports_added_and_removed_sleeves(self):
+        pub = pd.DataFrame({"X": [0.1, 0.2], "Gone": [0.0, 0.0]}, index=self.IDX)
+        new = pd.DataFrame({"X": [0.1, 0.2], "New": [0.0, 0.0]}, index=self.IDX)
+        lines = " | ".join(ba.describe_delta(new, pub))
+        assert "ADDED" in lines and "New" in lines
+        assert "REMOVED" in lines and "Gone" in lines
+
+    def test_reports_presence_changes_not_just_values(self):
+        pub = pd.DataFrame({"X": [0.1, 0.2]}, index=self.IDX)
+        new = pd.DataFrame({"X": [0.1, np.nan]}, index=self.IDX)
+        assert "presence change" in " | ".join(ba.describe_delta(new, pub))
+
+    def test_identical_frames_report_no_differences(self):
+        pub = pd.DataFrame({"X": [0.1, 0.2]}, index=self.IDX)
+        assert ba.describe_delta(pub.copy(), pub) == [
+            "no per-sleeve differences over the shared span"]
+
+
 class TestAtomicWrite:
     """These files are tracked, published research inputs. A crash mid-write
     must leave the previous version intact rather than a truncated panel."""

@@ -386,6 +386,42 @@ def _max_abs_diff(a: pd.DataFrame, b: pd.DataFrame):
     return float(np.nanmax(diff)), ""
 
 
+def describe_delta(rebuild: pd.DataFrame, published: pd.DataFrame) -> list[str]:
+    """Per-sleeve summary of how a rebuild differs from the published file.
+
+    Used when --accept-rebuild waives the reproduction gate: the operator is
+    asserting that a change is expected, which is not the same as agreeing to
+    an unexamined one. A sleeve moving that nobody intended shows up here.
+    """
+    lines = []
+    idx = rebuild.index.intersection(published.index)
+    only_new = [c for c in rebuild.columns if c not in published.columns]
+    only_old = [c for c in published.columns if c not in rebuild.columns]
+    if only_new:
+        lines.append(f"sleeves ADDED: {sorted(only_new)}")
+    if only_old:
+        lines.append(f"sleeves REMOVED: {sorted(only_old)}")
+    n_new = len(rebuild.index.difference(published.index))
+    n_gone = len(published.index.difference(rebuild.index))
+    if n_new or n_gone:
+        lines.append(f"months: +{n_new} added, -{n_gone} removed "
+                     f"({len(idx)} shared)")
+    for c in sorted(set(rebuild.columns) & set(published.columns)):
+        a, b = rebuild.loc[idx, c], published.loc[idx, c]
+        mask_diff = int((a.notna() != b.notna()).sum())
+        d = (a - b).abs().values
+        worst = float(np.nanmax(d)) if np.isfinite(d).any() else 0.0
+        n = int((pd.Series(d, index=idx) > REPRO_TOL).sum())
+        if worst > REPRO_TOL or mask_diff:
+            where = pd.Series(d, index=idx).idxmax()
+            lines.append(f"{c}: {n} month(s) differ, worst {worst*1e4:.1f} bps "
+                         f"at {str(where)[:7]}"
+                         + (f", {mask_diff} presence change(s)" if mask_diff else ""))
+    if not lines:
+        lines.append("no per-sleeve differences over the shared span")
+    return lines
+
+
 def reproduction_gate(native: pd.DataFrame, legacy: pd.DataFrame,
                       extra: dict | None = None,
                       accept_rebuild: bool = False) -> None:
@@ -426,9 +462,16 @@ def reproduction_gate(native: pd.DataFrame, legacy: pd.DataFrame,
     if accept_rebuild:
         # The builder itself changed (e.g. a corrected compounding rule), so the
         # on-disk file was produced by superseded code and is EXPECTED to differ.
-        # The operator asserts that intent; the mismatch is printed either way so
-        # it lands in the run log rather than passing silently.
+        # The operator asserts that intent -- but "I expect a change" must not
+        # mean "show me nothing". Print WHAT changed, per sleeve, so an
+        # unintended sleeve moving is visible in the run log instead of being
+        # waved through with the intended one.
         print("  [gate] --accept-rebuild: proceeding despite a mismatch\n" + msg)
+        best = max(candidates.items(),
+                   key=lambda kv: len(kv[1].index.intersection(published.index)))
+        print(f"\n  What changed vs the file on disk (closest construction: {best[0]}):")
+        for line in describe_delta(best[1], published):
+            print(f"    {line}")
         return
     raise SystemExit(
         "REPRODUCTION GATE FAILED: " + msg +
