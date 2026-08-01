@@ -293,17 +293,47 @@ def load_deflator(args, ret: pd.DataFrame) -> pd.Series | None:
         infl = cpi.pct_change()
         print(f"  Using CPI deflator from {args.cpi_csv} ({cpi.index.min().date()}..{cpi.index.max().date()})")
         return infl
-    # harsh proxy: gold (GLD) total return as purchasing-power unit
-    if "Gold" in ret.columns:
-        gold = ret["Gold"]
-        print("  No CPI provided (--cpi-csv). Using GOLD as a harsh purchasing-power"
-              " deflator (inflation stress), NOT literal CPI real return.")
-        return gold
+    # Harsh proxy: gold total return as the purchasing-power unit.
+    #
+    # Prefer the sleeve that actually covers the window. "Gold" is GLD/IAU and
+    # starts 2004-12, while real_series() fills missing months with 0.0 -- i.e.
+    # "assume zero inflation". On the long presets that silently left most of
+    # the span undeflated and published the hybrid as a real return (long1980:
+    # 175 of 429 OOS months, 41%, giving 1.52% where the fully-deflated figure
+    # is 2.67%). "Gold/Precious Metals" is the miners proxy and reaches 1978.
+    for col in ("Gold", "Gold/Precious Metals"):
+        if col not in ret.columns:
+            continue
+        s = ret[col].dropna()
+        if s.empty:
+            continue
+        start = s.index.min()
+        alt = "Gold/Precious Metals"
+        if col == "Gold" and alt in ret.columns:
+            alt_start = ret[alt].dropna().index.min()
+            if alt_start is not None and alt_start < start:
+                print(f"  No CPI provided (--cpi-csv). Using {alt} (from "
+                      f"{str(alt_start)[:7]}) as a harsh purchasing-power deflator "
+                      f"-- '{col}' only starts {str(start)[:7]} and undeflated months "
+                      "would be counted as zero inflation. NOT literal CPI.")
+                return ret[alt]
+        print(f"  No CPI provided (--cpi-csv). Using {col} as a harsh"
+              " purchasing-power deflator (inflation stress), NOT literal CPI.")
+        return ret[col]
     return None
 
 
 def real_series(nominal: pd.Series, deflator: pd.Series) -> pd.Series:
-    d = deflator.reindex(nominal.index).fillna(0.0)
+    d = deflator.reindex(nominal.index)
+    missing = int(d.isna().sum())
+    if missing:
+        # fillna(0.0) means "assume zero inflation for this month", which is a
+        # real assumption, not a neutral one. Say so rather than let it vanish
+        # into a headline labelled "real".
+        print(f"  WARNING: deflator missing for {missing}/{len(d)} months "
+              f"({missing/len(d)*100:.0f}%); those months are treated as ZERO "
+              "inflation, so the 'real' figure is a hybrid.")
+        d = d.fillna(0.0)
     return (1.0 + nominal) / (1.0 + d) - 1.0
 
 
@@ -610,21 +640,30 @@ def write_report(args, oos, oos_m, aw_oos, aw_oos_m, real_oos, real_aw, deflator
     a("")
     a("*Research / illustration only. Not investment advice.*")
     a("")
-    long_run = args.preset == "long1985"
+    # Any preset other than `modern` is a long-history run. Testing for
+    # `long1985` by exact equality made long1986/long1980 fall into the modern
+    # branch, so their reports claimed a "2008-2026" window and TIPS/silver/
+    # commodities hedges two lines above their own 1980/1986 setup block.
+    long_run = args.preset != "modern"
     if long_run:
-        a("> **Long-history preset (1985–2026, ~41y).** Uses the asset-class series that")
-        a("> exist back to 1985 (equities, treasuries, corporates, munis, gold via the")
-        a("> VGPMX/gold-futures TR proxy) — the investable-as-of-1985 universe — and walks")
-        a("> forward across ~41 years of regimes (1987 crash, 1994 bond crash, 1998 LTCM,")
-        a("> 2000 dot-com, 2008 GFC, ZIRP, 2013 taper, 2020 COVID, 2022 stagflation).")
+        yrs = (pd.Timestamp(args.window_end) - pd.Timestamp(args.window_start)).days / 365.25
+        a(f"> **Long-history preset `{args.preset}` ({args.window_start[:4]}–{args.window_end[:4]}, "
+          f"~{yrs:.0f}y).** Uses the asset-class series that exist across the whole")
+        a("> window — the investable-as-of-then universe (equities, corporates, munis,")
+        a("> gold via the VGPMX/gold-futures TR proxy, plus treasuries where they reach")
+        a("> back far enough) — and walks forward across the regimes it spans (1980-82")
+        a("> Volcker where included, 1987 crash, 1994 bond crash, 1998 LTCM, 2000 dot-com,")
+        a("> 2008 GFC, ZIRP, 2013 taper, 2020 COVID, 2022 stagflation).")
     else:
         a("> Re-thought after two critiques. (1) **No more single 10y/8y split:** this")
         a("> uses **walk-forward cross-validation** across the full 2008–2026 multi-regime")
         a("> history (GFC, ZIRP, taper, hiking, COVID, 2022 stagflation, 2023 bank stress),")
         a("> with **four-seasons (growth × inflation) regime scoring** — Bridgewater's actual")
         a("> framework — with **stagflation weighted 2x** (the All-Weather weak spot).")
+    # Name the hedges actually available, not a hardcoded list -- long1980 has
+    # only gold/PM (TIPS starts 2004, silver 2006, commodities 2002).
     a("> **Inflation made visible:** inflation-hedge sleeves are in the universe "
-      + ("(TIPS, gold, silver, commodities)" if not long_run else "(gold via the long proxy)") + ",")
+      + (f"({', '.join(inh)})" if inh else "(none available in this window)") + ",")
     a(f"> and **real returns** are reported ({'CPI-deflated' if args.cpi_csv else 'gold-deflated purchasing-power stress — NOT literal CPI; provide --cpi-csv for true real'}).")
     a("")
     a("## 1. Setup")

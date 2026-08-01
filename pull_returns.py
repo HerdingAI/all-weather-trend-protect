@@ -389,11 +389,17 @@ ALL_TICKERS = {**ASSET_TICKERS, **STOCKS}
 #     risk_parity_seasons.py legitimately reads the ^TNX yield LEVEL as an
 #     inflation-regime signal; only return AGGREGATION is affected.
 # ---------------------------------------------------------------------------
-NON_RETURN_KINDS = {"YIELD"}
-NON_RETURN_TICKERS = {
-    "^GSPC", "^DJI", "^IXIC", "^RUT",   # price-only indices (no dividends)
-    "^VIX",                              # a level, not a holdable return stream
+#   Excluded BY KIND, so a newly added ticker of the same kind is excluded
+#   automatically. Listing the tickers by name instead would silently readmit a
+#   price-only series the next time one is added -- the exact class of bug this
+#   policy exists to prevent.
+NON_RETURN_KINDS = {
+    "YIELD",    # ^TNX/^FVX/^TYX -- yield levels
+    "INDEX",    # ^GSPC/^DJI/^IXIC/^RUT price-only, ^VIX a level
 }
+# Escape hatch for one-off tickers whose `kind` is otherwise fine. Empty today;
+# kept so the policy has a single obvious place to grow.
+NON_RETURN_TICKERS: set[str] = set()
 
 
 def is_return_series(ticker: str, meta: tuple) -> bool:
@@ -582,64 +588,64 @@ def main() -> None:
     def _fmt(d): return d.strftime("%Y-%m") if isinstance(d, pd.Timestamp) else str(d)
     readme = f"""# Monthly Returns Across Asset Classes
 
-    Generated: {datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")}
-    Source: Yahoo Finance via `yfinance` v{yf.__version__}. Prices are **auto-adjusted**
-    (split + dividend adjusted = total-return close) for ETFs/stocks, so monthly
-    returns are **total returns**. Broad indices (^GSPC, ^DJI, ^IXIC, ^RUT, ^VIX) are
-    price-only (no dividends). ^TNX is a **yield level**, not a price -- it is kept in
-    `monthly_prices.csv` but excluded from return aggregations.
+Generated: {datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")}
+Source: Yahoo Finance via `yfinance` v{yf.__version__}. Prices are **auto-adjusted**
+(split + dividend adjusted = total-return close) for ETFs/stocks, so monthly
+returns are **total returns**. Broad indices (^GSPC, ^DJI, ^IXIC, ^RUT, ^VIX) are
+price-only (no dividends). ^TNX is a **yield level**, not a price -- it is kept in
+`monthly_prices.csv` but excluded from return aggregations.
 
-    ## Universe
-    - Asset-class tickers: {len(ASSET_TICKERS)}  (ETFs + broad indices for longest history)
-    - Individual stocks: {len(STOCKS)}  (large US caps across {len(STOCK_SECTORS)} GICS sectors)
-    - Total series pulled: {len(ALL_TICKERS)}
+## Universe
+- Asset-class tickers: {len(ASSET_TICKERS)}  (ETFs + broad indices for longest history)
+- Individual stocks: {len(STOCKS)}  (large US caps across {len(STOCK_SECTORS)} GICS sectors)
+- Total series pulled: {len(ALL_TICKERS)}
 
-    ## Files (./output)
-    | File | Description |
-    |---|---|
-    | `monthly_returns_by_ticker.csv` | Long panel: every ticker's monthly return with asset_class/sector labels |
-    | `monthly_returns_by_asset_class.csv` | Wide: equal-weighted monthly return per asset class |
-    | `monthly_returns_by_sector.csv` | Wide: equal-weighted monthly return per sector (sector ETFs + stocks) |
-    | `monthly_returns_by_sector_stocks_only.csv` | Wide: sector return from individual stocks only |
-    | `monthly_prices.csv` | Wide: monthly adjusted close per ticker |
-    | `universe.csv` | Ticker metadata + first/last month + month count |
-    | `coverage_summary.csv` | Per-series coverage + annualized return/vol + monthly min/max |
-    | `asset_class_summary.csv` | Asset-class-level coverage + stats |
+## Files (./output)
+| File | Description |
+|---|---|
+| `monthly_returns_by_ticker.csv` | Long panel: every ticker's monthly return with asset_class/sector labels |
+| `monthly_returns_by_asset_class.csv` | Wide: equal-weighted monthly return per asset class |
+| `monthly_returns_by_sector.csv` | Wide: equal-weighted monthly return per sector (sector ETFs + stocks) |
+| `monthly_returns_by_sector_stocks_only.csv` | Wide: sector return from individual stocks only |
+| `monthly_prices.csv` | Wide: monthly adjusted close per ticker |
+| `universe.csv` | Ticker metadata + first/last month + month count |
+| `coverage_summary.csv` | Per-series coverage + annualized return/vol + monthly min/max |
+| `asset_class_summary.csv` | Asset-class-level coverage + stats |
 
-    ## Coverage (as far back as Yahoo provides, monthly interval)
-    Overall date range: **{_fmt(prices.index.min())} -> {_fmt(prices.index.max())}**
-    ({len(prices)} months)
+## Coverage (as far back as Yahoo provides, monthly interval)
+Overall date range: **{_fmt(prices.index.min())} -> {_fmt(prices.index.max())}**
+({len(prices)} months)
 
-    Longest series:
-    """
+Longest series:
+"""
     top10 = cov.sort_values("first_month").head(10)
     for _,r in top10.iterrows():
         readme += f"- {r['ticker']:7s} {r['name'][:42]:42s} {_fmt(r['first_month'])} -> {_fmt(r['last_month'])} ({r['n_months']} mo)\n"
 
     readme += """
-    ## Methodology
-    1. Pull monthly history: `yf.download(tickers, period='max', interval='1mo', auto_adjust=True)`.
-    2. Monthly return = adjusted close pct_change (month-over-month). Returns indexed to
-       month-end timestamps.
-    3. Asset-class returns = equal-weighted mean of constituent tickers' monthly returns
-       each month (using available tickers). Single stocks and sector ETFs are excluded
-       from the asset-class aggregate to avoid double counting; sectors get their own file.
-    4. Sector returns = equal-weighted mean across sector ETF + individual stocks in that
-       sector. A stocks-only sector file is also produced.
+## Methodology
+1. Pull monthly history: `yf.download(tickers, period='max', interval='1mo', auto_adjust=True)`.
+2. Monthly return = adjusted close pct_change (month-over-month). Returns indexed to
+   month-end timestamps.
+3. Asset-class returns = equal-weighted mean of constituent tickers' monthly returns
+   each month (using available tickers). Single stocks and sector ETFs are excluded
+   from the asset-class aggregate to avoid double counting; sectors get their own file.
+4. Sector returns = equal-weighted mean across sector ETF + individual stocks in that
+   sector. A stocks-only sector file is also produced.
 
-    ## Notes / caveats
-    - Yahoo monthly history for indices generally starts 1985; ETFs start at inception.
-      Using the longest-history index per asset class maximizes how far back we can go.
-    - Total-return vs price-return: ETF/stock returns include dividends; index returns
-      (^GSPC etc.) are price-only and will understate total return by the dividend yield.
-    - Equal-weighting is used for aggregation (no market-cap weights across ETFs/indexes).
-    - Data is for research/illustration; not investment advice.
+## Notes / caveats
+- Yahoo monthly history for indices generally starts 1985; ETFs start at inception.
+  Using the longest-history index per asset class maximizes how far back we can go.
+- Total-return vs price-return: ETF/stock returns include dividends; index returns
+  (^GSPC etc.) are price-only and will understate total return by the dividend yield.
+- Equal-weighting is used for aggregation (no market-cap weights across ETFs/indexes).
+- Data is for research/illustration; not investment advice.
 
-    ## Reproduce
-    ```bash
-    .venv/bin/python pull_returns.py
-    ```
-    """
+## Reproduce
+```bash
+.venv/bin/python pull_returns.py
+```
+"""
     with open(os.path.join(OUT,"README.md"),"w") as f:
         f.write(readme)
     print("Wrote README.md")

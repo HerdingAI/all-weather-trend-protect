@@ -279,9 +279,23 @@ Discretionary, Consumer Staples, Healthcare, Financials, Industrials, Energy,
 Materials, Utilities, Real Estate`.
 
 **Aggregation:** equal-weighted mean across all tickers whose `sector` equals the
-column label, for that month. The GICS-sector columns combine **sector ETFs +
-individual stocks** in that sector. The `STOCK` column is near-empty (only `ASA` is
+column label, for that month. The `STOCK` column is near-empty (only `ASA` is
 tagged `STOCK`; the 128 individuals carry their GICS sector instead).
+
+> **The GICS columns are individual stocks only — not "sector ETFs + stocks".**
+> This grouping keys on `meta[2]`, which holds the *kind* for asset tickers and the
+> GICS sector only for single stocks. Sector ETFs (`XLE`, `XLF`, …) carry their
+> `Sector-*` label in `meta[1]`, so they land in the `ETF` column and never reach
+> their own GICS column. That is also why instrument kinds appear here as if they
+> were sectors. Pre-existing behaviour, documented rather than changed — the
+> stocks-only view in `monthly_returns_by_sector_stocks_only.csv` is unaffected.
+
+> **Shape changes on the next `pull_returns.py` run.** The return-series policy
+> (methodology §4) now applies to this file too, so the `YIELD` and `INDEX` columns
+> disappear — all three `YIELD` tickers and all five `INDEX` tickers are excluded,
+> emptying both groups. Expect **15 groupings**, not 17. The committed file still
+> has 17 because it predates the fix and the puller needs a network re-pull to
+> regenerate; `build_aggregates.py` rebuilds only the asset-class file.
 
 ---
 

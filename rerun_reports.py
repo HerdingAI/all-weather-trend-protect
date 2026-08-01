@@ -27,6 +27,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import subprocess
@@ -65,6 +66,10 @@ SCORE_RE = re.compile(r"--score-mode\s+(asymmetric2|asymmetric|default)")
 
 def parse_config(dirname: str) -> dict:
     """Recover a round's actual configuration from its committed report."""
+    if dirname not in EVAL_DIRS:
+        raise SystemExit(
+            f"{dirname!r} is not a known eval round.\nKnown rounds:\n  "
+            + "\n  ".join(EVAL_DIRS))
     report = os.path.join(OUT, dirname, "report_eval.md")
     if not os.path.exists(report):
         raise SystemExit(f"{dirname}: no report_eval.md to recover config from")
@@ -116,11 +121,26 @@ def main(argv=None) -> int:
                     help="Run just this output dir (repeatable).")
     ap.add_argument("--list", action="store_true",
                     help="Print the recovered commands and exit.")
+    ap.add_argument("--from-snapshot", metavar="PATH",
+                    help="Recover configs from a configs.json written by an "
+                         "earlier run, instead of re-parsing the reports. Use "
+                         "when a report was corrupted by an interrupted write.")
     ap.add_argument("--log-dir", default=os.path.join(HERE, "output", "_rerun_logs"))
     args = ap.parse_args(argv)
 
-    targets = args.only or EVAL_DIRS
-    cfgs = [parse_config(d) for d in targets]
+    if args.jobs < 1:
+        raise SystemExit(f"--jobs must be >= 1 (got {args.jobs})")
+
+    targets = list(dict.fromkeys(args.only or EVAL_DIRS))   # de-dup: two runs
+    if args.from_snapshot:                                  # into one out-dir race
+        with open(args.from_snapshot) as fh:
+            by_dir = {c["dir"]: c for c in json.load(fh)}
+        missing = [d for d in targets if d not in by_dir]
+        if missing:
+            raise SystemExit(f"snapshot {args.from_snapshot} lacks: {missing}")
+        cfgs = [by_dir[d] for d in targets]
+    else:
+        cfgs = [parse_config(d) for d in targets]
 
     if args.list:
         for c in cfgs:
@@ -136,9 +156,21 @@ def main(argv=None) -> int:
     cfgs.sort(key=lambda c: len(c["schemes"]), reverse=True)
 
     os.makedirs(args.log_dir, exist_ok=True)
+
+    # Snapshot the recovered configs BEFORE running. Each run truncates the very
+    # report it was parsed from (risk_parity_eval.py opens report_eval.md with
+    # "w" as its last action), so an interrupt inside that write can leave a
+    # 0-byte or half-flushed report -- and because every target is parsed up
+    # front, one unparseable report then blocks re-running the other eleven.
+    # The report is the only record of what ran; do not destroy it without a copy.
+    snapshot = os.path.join(args.log_dir, "configs.json")
+    with open(snapshot, "w") as fh:
+        json.dump(cfgs, fh, indent=2)
+
     print(f"Re-running {len(cfgs)} eval rounds, {args.jobs} at a time, "
           f"BLAS pinned to 1 thread/process, largest first.")
-    print(f"Logs: {args.log_dir}\n")
+    print(f"Logs: {args.log_dir}")
+    print(f"Config snapshot: {snapshot}\n")
 
     results, t0 = [], time.time()
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:

@@ -66,8 +66,14 @@ AC_CSV = os.path.join(OUT, "monthly_returns_by_asset_class.csv")
 PRICES_CSV = os.path.join(OUT, "monthly_prices.csv")
 PRICES_EXT_CSV = os.path.join(OUT, "monthly_prices_extended.csv")
 COVERAGE_CSV = os.path.join(OUT, "coverage_asset_class_extended.csv")
+AC_SUMMARY_CSV = os.path.join(OUT, "asset_class_summary.csv")
 
 REPRO_TOL = 1e-9
+
+# A month is compounded only if the ticker traded on at least this share of the
+# archive's trading days that month. Guards interior gaps (delist/relist, halts,
+# vendor outages), which the first/last-month edge tests cannot see.
+MIN_MONTH_COVERAGE = 0.5
 
 
 # --------------------------------------------------------------------------- #
@@ -123,6 +129,13 @@ def splice_tail(extended: pd.DataFrame, native: pd.DataFrame):
     spliced, never earlier history, so the panel does not quietly mix
     constructions across its span.
     """
+    if extended.empty:
+        # An empty index has max() == NaT, and every `d > NaT` is False, so the
+        # tail came back empty and the whole native panel was silently thrown
+        # away -- writing a 0-row aggregate with no error.
+        raise ValueError(
+            "splice_tail: the extended panel is empty; refusing to splice "
+            "(this would silently discard the entire panel)")
     tail = [d for d in native.index if d > extended.index.max()]
     if not tail:
         return extended, []
@@ -148,21 +161,36 @@ def restrict_universe(wide: pd.DataFrame, reference: set):
 # --------------------------------------------------------------------------- #
 
 def _first_bday(period) -> pd.Timestamp:
-    """First business day of a monthly Period (markets never trade earlier)."""
-    start = period.to_timestamp("s")
-    return start if start.weekday() < 5 else start + pd.offsets.BDay(1)
+    """First business day (Mon-Fri) of a monthly Period.
+
+    Rolls FORWARD off a weekend, and must never leave the month.
+    """
+    d = period.to_timestamp("s")
+    while d.weekday() >= 5:
+        d += pd.Timedelta(days=1)
+    return d
 
 
 def _last_bday(period) -> pd.Timestamp:
-    """Last business day of a monthly Period.
+    """Last business day (Mon-Fri) of a monthly Period.
 
-    Compared against the archive edge to decide calendar completeness. Using the
+    Rolls BACKWARD off a weekend, and must never leave the month. Compared
+    against the archive edge to decide calendar completeness: using the
     business-day end rather than the calendar end avoids declaring a month
-    truncated merely because the 31st fell on a weekend. A market holiday on the
-    final business day would still read as truncated -- deliberately
-    conservative: dropping one real month is cheaper than publishing a stub.
+    truncated merely because the 31st fell on a weekend.
+
+    Do NOT use `pd.offsets.BDay(0)` here -- it rolls *forward*, which pushed the
+    answer into the following month for the 29% of months that end on a weekend
+    and silently dropped genuinely complete months.
+
+    Holidays are not modelled, so a market holiday on the final business day
+    still reads as truncated. That is deliberately conservative: dropping one
+    real month is cheaper than publishing a partial month as a whole one.
     """
-    return period.to_timestamp("M") - pd.offsets.BDay(0)
+    d = period.to_timestamp("M")
+    while d.weekday() >= 5:
+        d -= pd.Timedelta(days=1)
+    return d
 
 
 def daily_to_monthly_returns(daily: pd.DataFrame, complete_only: bool = True) -> pd.DataFrame:
@@ -200,6 +228,8 @@ def daily_to_monthly_returns(daily: pd.DataFrame, complete_only: bool = True) ->
             d = d[~d["month"].isin(truncated)]
 
         span = d.groupby("month")["date"].agg(["min", "max"])
+        arch_days = d.groupby("month")["date"].nunique()
+        tk_days = d.groupby(["ticker", "month"])["date"].nunique()
         edge = d.groupby("ticker")["date"].agg(["min", "max"])
         first_m = edge["min"].dt.to_period("M")
         last_m = edge["max"].dt.to_period("M")
@@ -211,6 +241,12 @@ def daily_to_monthly_returns(daily: pd.DataFrame, complete_only: bool = True) ->
                 keep.append(False)          # started mid-month
             elif m == last_m[tk] and edge["max"][tk] < span["max"][m]:
                 keep.append(False)          # ended mid-month
+            elif tk_days[(tk, m)] < MIN_MONTH_COVERAGE * arch_days[m]:
+                # (3) INTERIOR sparse month. The edge tests above only look at a
+                # ticker's global first/last month, so a mid-history gap --
+                # delist/relist, trading halt, vendor outage -- was compounded
+                # from a stub and published as a full-month return.
+                keep.append(False)
             else:
                 keep.append(True)
         monthly = monthly[pd.Series(keep, index=monthly.index)]
@@ -258,17 +294,45 @@ def load_daily_long() -> pd.DataFrame:
 # --------------------------------------------------------------------------- #
 
 def _max_abs_diff(a: pd.DataFrame, b: pd.DataFrame):
-    """(max abs difference, note) between two aggregates, or (None, reason)."""
+    """(max abs difference, note) between two aggregates, or (None, reason).
+
+    Compares WHERE the data is as well as what it is. `a - b` is NaN wherever
+    either side is NaN and `np.nanmax` ignores exactly those cells, so a naive
+    value comparison reports a perfect match for a rebuild that dropped an
+    entire sleeve. That is this script's own failure mode -- the fix works by
+    removing constituents, which turns values into NaN -- so the presence mask
+    is checked first and an all-NaN overlap is treated as equal, not as
+    infinitely different.
+    """
     if sorted(a.columns) != sorted(b.columns):
         return None, f"column sets differ (rebuild {len(a.columns)} vs file {len(b.columns)})"
     idx = a.index.intersection(b.index)
     if len(idx) != len(b.index):
         return None, f"index differs (overlap {len(idx)} of {len(b.index)} file months)"
+
     cols = sorted(a.columns)
-    return float(np.nanmax((a.loc[idx, cols] - b.loc[idx, cols]).abs().values)), ""
+    A, B = a.loc[idx, cols], b.loc[idx, cols]
+
+    mask_a, mask_b = A.notna(), B.notna()
+    if not mask_a.equals(mask_b):
+        n = int((mask_a != mask_b).values.sum())
+        lost = [c for c in cols if (mask_b[c] & ~mask_a[c]).any()]
+        gained = [c for c in cols if (mask_a[c] & ~mask_b[c]).any()]
+        detail = []
+        if lost:
+            detail.append(f"missing in rebuild: {lost[:4]}")
+        if gained:
+            detail.append(f"extra in rebuild: {gained[:4]}")
+        return None, f"NaN positions differ in {n} cells ({'; '.join(detail)})"
+
+    diff = (A - B).abs().values
+    if not np.isfinite(diff).any():
+        return 0.0, ""          # both all-NaN in the same places: equal
+    return float(np.nanmax(diff)), ""
 
 
-def reproduction_gate(wide: pd.DataFrame, extra: dict | None = None) -> None:
+def reproduction_gate(wide: pd.DataFrame, extra: dict | None = None,
+                      accept_rebuild: bool = False) -> None:
     """Prove the tracked inputs still reproduce the file on disk.
 
     The file may legitimately be in one of several states, and the gate must
@@ -303,10 +367,20 @@ def reproduction_gate(wide: pd.DataFrame, extra: dict | None = None) -> None:
             return
         reasons.append(f"    {label}: {why or f'max diff {d:.3e}'}")
 
+    msg = ("the tracked ticker data reproduces the file on disk under none of the "
+           "known constructions.\n" + "\n".join(reasons))
+    if accept_rebuild:
+        # The builder itself changed (e.g. a corrected compounding rule), so the
+        # on-disk file was produced by superseded code and is EXPECTED to differ.
+        # The operator asserts that intent; the mismatch is printed either way so
+        # it lands in the run log rather than passing silently.
+        print("  [gate] --accept-rebuild: proceeding despite a mismatch\n" + msg)
+        return
     raise SystemExit(
-        "REPRODUCTION GATE FAILED: the tracked ticker data reproduces the file on "
-        "disk under none of the known constructions.\n" + "\n".join(reasons) +
+        "REPRODUCTION GATE FAILED: " + msg +
         "\nRefusing to proceed: any reported delta would be uninterpretable."
+        "\n\nIf the BUILDER changed on purpose (a corrected rule), re-run with "
+        "--accept-rebuild to record the change deliberately."
     )
 
 
@@ -322,8 +396,14 @@ def delta_gate(wide: pd.DataFrame, clean: pd.DataFrame) -> None:
             changed.add(c)
             continue
         idx = legacy.index.intersection(clean.index)
-        d = (legacy.loc[idx, c] - clean.loc[idx, c]).abs()
-        if float(np.nanmax(d.values)) > REPRO_TOL:
+        L, C = legacy.loc[idx, c], clean.loc[idx, c]
+        # Presence first: a sleeve emptied by the fix differs even though every
+        # value-wise difference is NaN and would be skipped by nanmax.
+        if not L.notna().equals(C.notna()):
+            changed.add(c)
+            continue
+        d = (L - C).abs().values
+        if np.isfinite(d).any() and float(np.nanmax(d)) > REPRO_TOL:
             changed.add(c)
     unexpected = changed - EXPECTED_CHANGED
     if unexpected:
@@ -344,6 +424,36 @@ def _summarize(name: str, s: pd.Series) -> str:
         return f"    {name:26s} EMPTY"
     return (f"    {name:26s} {str(s.index.min())[:7]} -> {str(s.index.max())[:7]}  "
             f"n={len(s):4d}  ann={s.mean()*1200:6.2f}%  vol={s.std()*np.sqrt(12)*100:6.2f}%")
+
+
+def asset_class_summary(clean: pd.DataFrame) -> pd.DataFrame:
+    """Per-sleeve coverage/stat rows for `asset_class_summary.csv`.
+
+    Mirrors the writer in `pull_returns.py` (arithmetic mean x 12, not CAGR --
+    kept identical so the two producers stay interchangeable, even though the
+    docs elsewhere loosely call it a CAGR).
+
+    Regenerated here because this file is DERIVED from the panel and
+    `docs/coverage.md` is a transcription of it. Rebuilding the panel without it
+    left a published file advertising the contaminated 2.24% Treasuries sleeve
+    and a `Volatility` row the panel no longer had.
+    """
+    rows = []
+    for ac in clean.columns:
+        s = clean[ac].dropna()
+        if s.empty:
+            continue
+        rows.append({
+            "asset_class": ac,
+            "first_month": s.index.min(),
+            "last_month": s.index.max(),
+            "n_months": len(s),
+            "ann_return_pct": (s.mean() * 12) * 100,
+            "ann_vol_pct": (s.std() * (12 ** 0.5)) * 100,
+            "min_month_pct": s.min() * 100,
+            "max_month_pct": s.max() * 100,
+        })
+    return pd.DataFrame(rows)
 
 
 def coverage_table(wide: pd.DataFrame, groups: dict) -> pd.DataFrame:
@@ -377,6 +487,10 @@ def main(argv=None) -> int:
                     help="Build from the daily archive to extend history before 1985.")
     ap.add_argument("--dry-run", action="store_true",
                     help="Compute and report, but write nothing.")
+    ap.add_argument("--accept-rebuild", action="store_true",
+                    help="Proceed even if the rebuild differs from the file on "
+                         "disk. Use ONLY when the builder itself changed on "
+                         "purpose, so the on-disk file came from superseded code.")
     args = ap.parse_args(argv)
 
     print("=" * 78)
@@ -415,12 +529,29 @@ def main(argv=None) -> int:
                   "monthly-native panel (daily archive ends mid-month; the two "
                   "constructions agree to <1 bp/month)")
 
+    # Default mode rebuilds from the monthly source, which cannot reach the
+    # pre-1985 history. Running it over an extended panel would silently discard
+    # ~140 months, so refuse with an instruction rather than a gate mismatch.
+    if not args.extended and os.path.exists(AC_CSV):
+        on_disk = pd.read_csv(AC_CSV, index_col=0, parse_dates=True)
+        native_start = equal_weight(
+            monthly_wide, aggregatable_groups(ALL_TICKERS, monthly_wide.columns)
+        ).index.min()
+        if len(on_disk) and on_disk.index.min() < native_start:
+            raise SystemExit(
+                f"The panel on disk starts {str(on_disk.index.min())[:7]}, before the "
+                f"monthly source can reach ({str(native_start)[:7]}). It is the "
+                "EXTENDED build.\nRebuilding in fix-only mode would discard that "
+                "history. Re-run with --extended (or --dry-run to inspect)."
+            )
+
     print("\nGates:")
     # The extended panel is a valid on-disk state too, so offer it as a
     # candidate -- otherwise re-running --extended would read as corruption.
     reproduction_gate(
         monthly_wide,
         extra={"extended (new rule, daily source)": clean} if args.extended else None,
+        accept_rebuild=args.accept_rebuild,
     )
     if not args.extended:
         delta_gate(monthly_wide, clean)
@@ -443,6 +574,12 @@ def main(argv=None) -> int:
 
     clean.to_csv(AC_CSV)
     print(f"\nWrote {AC_CSV}  shape={clean.shape}")
+
+    # Derived from the panel -- must be rewritten together with it, or it keeps
+    # publishing the superseded numbers.
+    summary = asset_class_summary(clean)
+    summary.to_csv(AC_SUMMARY_CSV, index=False)
+    print(f"Wrote {AC_SUMMARY_CSV}  rows={len(summary)}")
 
     if args.extended:
         # NOTE: written to a SEPARATE file, never over monthly_prices.csv.

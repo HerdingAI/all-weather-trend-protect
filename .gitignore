@@ -14,6 +14,9 @@ output/daily_prices.csv
 
 # Risk-parity search: large per-combination TRAIN / combinations result tables.
 # Regenerable; keep the small summary CSVs + report.md tracked (see docs/).
+# Re-run driver logs: per-round stdout, regenerable and noisy in diffs.
+output/_rerun_logs/
+
 output/**/train_results.csv
 output/**/train_results_all_folds.csv
 output/**/combinations_results.csv

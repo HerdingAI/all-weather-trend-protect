@@ -274,6 +274,46 @@ class TestSpliceTail:
         assert pd.Timestamp("2000-01-31") not in out.index
 
 
+class TestAssetClassSummary:
+    """`asset_class_summary.csv` is derived from the panel, and `docs/coverage.md`
+    is a transcription of it. Rebuilding the panel without rebuilding this leaves
+    a published file contradicting the data beside it -- which is exactly what
+    happened: it kept advertising the contaminated 2.24% Treasuries sleeve and a
+    `Volatility` row that no longer exists.
+
+    Schema must match pull_returns.py's writer exactly so the two producers stay
+    interchangeable.
+    """
+
+    IDX = pd.to_datetime(["2000-01-31", "2000-02-29", "2000-03-31"])
+
+    def _panel(self):
+        return pd.DataFrame({"A": [0.10, -0.05, 0.02], "B": [np.nan, 0.01, 0.03]},
+                            index=self.IDX)
+
+    def test_schema_matches_the_puller(self):
+        out = ba.asset_class_summary(self._panel())
+        assert list(out.columns) == [
+            "asset_class", "first_month", "last_month", "n_months",
+            "ann_return_pct", "ann_vol_pct", "min_month_pct", "max_month_pct"]
+
+    def test_stats_are_computed_over_non_null_months_only(self):
+        out = ba.asset_class_summary(self._panel()).set_index("asset_class")
+        assert out.loc["B", "n_months"] == 2
+        assert out.loc["B", "first_month"] == pd.Timestamp("2000-02-29")
+        assert out.loc["A", "ann_return_pct"] == pytest.approx(
+            self._panel()["A"].mean() * 12 * 100)
+
+    def test_percentages_not_fractions(self):
+        out = ba.asset_class_summary(self._panel()).set_index("asset_class")
+        assert out.loc["A", "max_month_pct"] == pytest.approx(10.0)
+
+    def test_empty_sleeve_is_omitted(self):
+        p = self._panel()
+        p["C"] = np.nan
+        assert "C" not in set(ba.asset_class_summary(p)["asset_class"])
+
+
 class TestDiffHelper:
     """Backs the reproduction gate, which must distinguish 'inputs changed'
     from 'file already fixed' rather than conflating them."""
@@ -302,6 +342,116 @@ class TestDiffHelper:
         b = pd.DataFrame({"X": [0.1, 0.2]}, index=self.IDX)
         d, why = ba._max_abs_diff(a, b)
         assert d is None and "index differs" in why
+
+    def test_lost_data_is_not_reported_as_a_match(self):
+        # a - b is NaN wherever EITHER side is NaN, and nanmax ignores exactly
+        # those cells -- so a rebuild that dropped a whole sleeve read as a
+        # perfect reproduction. This is the script's own failure mode: the fix
+        # works by removing constituents, which turns values into NaN.
+        good = pd.DataFrame({"X": [0.1, 0.2], "Y": [0.3, 0.4]}, index=self.IDX)
+        lost = good.copy()
+        lost["Y"] = np.nan
+        d, why = ba._max_abs_diff(lost, good)
+        assert d is None, "a rebuild that lost an entire sleeve compared equal"
+        assert "missing" in why.lower() or "nan" in why.lower()
+
+    def test_spurious_data_is_not_reported_as_a_match(self):
+        good = pd.DataFrame({"X": [0.1, 0.2], "Y": [np.nan, np.nan]}, index=self.IDX)
+        gained = good.copy()
+        gained["Y"] = [0.9, 0.9]
+        d, why = ba._max_abs_diff(gained, good)
+        assert d is None
+
+    def test_matching_nan_positions_still_compare_equal(self):
+        a = pd.DataFrame({"X": [np.nan, 0.2]}, index=self.IDX)
+        d, why = ba._max_abs_diff(a, a.copy())
+        assert d == pytest.approx(0.0) and why == ""
+
+    def test_all_nan_frames_are_equal_not_different(self):
+        # np.nanmax over an all-NaN slice warns and returns nan; nan <= tol is
+        # False, so two identical frames were reported as differing.
+        a = pd.DataFrame({"X": [np.nan, np.nan]}, index=self.IDX)
+        d, why = ba._max_abs_diff(a, a.copy())
+        assert d == pytest.approx(0.0)
+
+
+class TestBusinessDayHelpers:
+    """`_last_bday` backs the archive-truncation guard. Rolling the wrong way
+    silently drops genuinely complete months (29% of months end on a weekend).
+    """
+
+    def test_last_bday_of_month_ending_on_sunday(self):
+        # 2026-05-31 is a Sunday; the last business day is Friday 2026-05-29.
+        assert ba._last_bday(pd.Period("2026-05", "M")) == pd.Timestamp("2026-05-29")
+
+    def test_last_bday_of_month_ending_on_saturday(self):
+        # 2026-02-28 is a Saturday -> Friday 2026-02-27.
+        assert ba._last_bday(pd.Period("2026-02", "M")) == pd.Timestamp("2026-02-27")
+
+    def test_last_bday_of_month_ending_on_weekday(self):
+        assert ba._last_bday(pd.Period("2026-07", "M")) == pd.Timestamp("2026-07-31")
+
+    def test_last_bday_never_leaves_the_month(self):
+        for p in pd.period_range("1990-01", "2030-12", freq="M"):
+            assert ba._last_bday(p).to_period("M") == p, f"{p} escaped its month"
+
+    def test_first_bday_of_month_starting_on_weekend(self):
+        # 2026-08-01 is a Saturday -> Monday 2026-08-03.
+        assert ba._first_bday(pd.Period("2026-08", "M")) == pd.Timestamp("2026-08-03")
+
+    def test_first_bday_never_leaves_the_month(self):
+        for p in pd.period_range("1990-01", "2030-12", freq="M"):
+            assert ba._first_bday(p).to_period("M") == p
+
+
+class TestCompleteMonthEndToEnd:
+    """A weekend-ending month that the archive fully covers must survive."""
+
+    def test_month_ending_on_a_weekend_is_kept(self):
+        # Archive runs through Fri 2026-05-29. May is complete (05-30/31 are the
+        # weekend), so it must not be dropped as truncated.
+        dates = pd.bdate_range("2026-04-01", "2026-05-29")
+        panel = pd.DataFrame({"date": dates, "ticker": "A",
+                              "daily_return": [0.001] * len(dates)})
+        out = ba.daily_to_monthly_returns(panel, complete_only=True)
+        assert pd.Timestamp("2026-05-31") in out.index, "complete May was dropped"
+
+
+class TestInteriorCoverage:
+    """Edge-month checks only look at a ticker's global first/last month, so a
+    mid-history gap (delist/relist, halt, vendor gap) was compounded from a stub
+    and published as a full month.
+    """
+
+    def _panel_with_interior_gap(self):
+        rows = []
+        for d in pd.bdate_range("2026-01-01", "2026-03-31"):
+            rows.append((d, "MKT", 0.0))
+            # A trades all of Jan and Mar, but only the last 2 days of Feb.
+            if d.month != 2 or d >= pd.Timestamp("2026-02-26"):
+                rows.append((d, "A", 0.05))
+        return pd.DataFrame(rows, columns=["date", "ticker", "daily_return"])
+
+    def test_sparse_interior_month_is_dropped(self):
+        out = ba.daily_to_monthly_returns(self._panel_with_interior_gap(),
+                                          complete_only=True)
+        assert pd.isna(out.loc[pd.Timestamp("2026-02-28"), "A"]), \
+            "a 2-day stub was published as a full month"
+
+    def test_full_interior_months_are_kept(self):
+        out = ba.daily_to_monthly_returns(self._panel_with_interior_gap(),
+                                          complete_only=True)
+        assert not pd.isna(out.loc[pd.Timestamp("2026-01-31"), "A"])
+        assert not pd.isna(out.loc[pd.Timestamp("2026-03-31"), "A"])
+
+
+class TestSpliceTailGuards:
+    def test_empty_extended_raises_rather_than_discarding_everything(self):
+        native = pd.DataFrame({"X": [0.1, 0.2]},
+                              index=pd.to_datetime(["2000-01-31", "2000-02-29"]))
+        empty = native.iloc[:0]
+        with pytest.raises(ValueError):
+            ba.splice_tail(empty, native)
 
 
 class TestUniverseReconciliation:
