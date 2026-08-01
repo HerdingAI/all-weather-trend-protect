@@ -1,0 +1,7 @@
+metric,value
+oos_sharpe,0.6752830423198352
+oos_sharpe_ci_lo,0.3676434158116871
+oos_sharpe_ci_hi,1.0562038220840708
+oos_stag_ann,-0.09542951651286413
+oos_stag_ci_lo,-0.25218268622778217
+oos_stag_ci_hi,0.07462361709915125

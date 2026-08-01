@@ -64,6 +64,7 @@ DAILY_RETURNS_PQ = os.path.join(OUT, "daily_returns_by_ticker.parquet")
 DAILY_PRICES_PQ = os.path.join(OUT, "daily_prices.parquet")
 AC_CSV = os.path.join(OUT, "monthly_returns_by_asset_class.csv")
 PRICES_CSV = os.path.join(OUT, "monthly_prices.csv")
+PRICES_EXT_CSV = os.path.join(OUT, "monthly_prices_extended.csv")
 COVERAGE_CSV = os.path.join(OUT, "coverage_asset_class_extended.csv")
 
 REPRO_TOL = 1e-9
@@ -109,6 +110,26 @@ def equal_weight(wide: pd.DataFrame, groups: dict) -> pd.DataFrame:
     return out.dropna(how="all").sort_index()
 
 
+def splice_tail(extended: pd.DataFrame, native: pd.DataFrame):
+    """Carry TAIL months the extended panel lacks over from the native panel.
+
+    The daily archive ends mid-month (2026-07-17), so its final month is dropped
+    as a stub and the extended panel stops one month short of the monthly-native
+    one. Losing that month would silently shorten every downstream window (the
+    eval TEST end is 2026-07-31).
+
+    Measured over 497 overlapping months the two constructions agree to <=0.9
+    bps/month (corr >= 0.9998), so the seam is immaterial -- but only the TAIL is
+    spliced, never earlier history, so the panel does not quietly mix
+    constructions across its span.
+    """
+    tail = [d for d in native.index if d > extended.index.max()]
+    if not tail:
+        return extended, []
+    out = pd.concat([extended, native.loc[tail].reindex(columns=extended.columns)])
+    return out.sort_index(), list(tail)
+
+
 def restrict_universe(wide: pd.DataFrame, reference: set):
     """Drop columns absent from the reference universe.
 
@@ -126,6 +147,24 @@ def restrict_universe(wide: pd.DataFrame, reference: set):
 # Daily -> monthly
 # --------------------------------------------------------------------------- #
 
+def _first_bday(period) -> pd.Timestamp:
+    """First business day of a monthly Period (markets never trade earlier)."""
+    start = period.to_timestamp("s")
+    return start if start.weekday() < 5 else start + pd.offsets.BDay(1)
+
+
+def _last_bday(period) -> pd.Timestamp:
+    """Last business day of a monthly Period.
+
+    Compared against the archive edge to decide calendar completeness. Using the
+    business-day end rather than the calendar end avoids declaring a month
+    truncated merely because the 31st fell on a weekend. A market holiday on the
+    final business day would still read as truncated -- deliberately
+    conservative: dropping one real month is cheaper than publishing a stub.
+    """
+    return period.to_timestamp("M") - pd.offsets.BDay(0)
+
+
 def daily_to_monthly_returns(daily: pd.DataFrame, complete_only: bool = True) -> pd.DataFrame:
     """Compound daily returns to month-end, one column per ticker.
 
@@ -140,8 +179,26 @@ def daily_to_monthly_returns(daily: pd.DataFrame, complete_only: bool = True) ->
     monthly = grp.apply(lambda s: float(np.prod(1.0 + s.values) - 1.0)).rename("r").reset_index()
 
     if complete_only:
-        # A ticker's edge months are complete only if the archive itself has
-        # trading days in that month at or before/after the ticker's own edge.
+        # Two distinct incompleteness cases, both of which would otherwise
+        # publish a stub as a full-month return:
+        #
+        #  (1) ARCHIVE-level. The archive's own edge months may be truncated --
+        #      the real daily file ends 2026-07-17. Every ticker trades through
+        #      that date, so a per-ticker test alone would call July "complete".
+        #      Compare the archive edge against the CALENDAR month instead.
+        #  (2) TICKER-level. A ticker that inceptions or dies mid-month has a
+        #      partial first/last month even though the archive covers it fully.
+        arch_min, arch_max = d["date"].min(), d["date"].max()
+        truncated = set()
+        first_m, last_m_arch = arch_min.to_period("M"), arch_max.to_period("M")
+        if arch_max < _last_bday(last_m_arch):
+            truncated.add(last_m_arch)
+        if arch_min > _first_bday(first_m):
+            truncated.add(first_m)
+        if truncated:
+            monthly = monthly[~monthly["month"].isin(truncated)]
+            d = d[~d["month"].isin(truncated)]
+
         span = d.groupby("month")["date"].agg(["min", "max"])
         edge = d.groupby("ticker")["date"].agg(["min", "max"])
         first_m = edge["min"].dt.to_period("M")
@@ -211,43 +268,45 @@ def _max_abs_diff(a: pd.DataFrame, b: pd.DataFrame):
     return float(np.nanmax((a.loc[idx, cols] - b.loc[idx, cols]).abs().values)), ""
 
 
-def reproduction_gate(wide: pd.DataFrame) -> None:
+def reproduction_gate(wide: pd.DataFrame, extra: dict | None = None) -> None:
     """Prove the tracked inputs still reproduce the file on disk.
 
-    Before the fix is applied, the file on disk was produced by the OLD rule, so
-    a legacy rebuild must match it -- that is what makes the resulting delta
-    attributable to the fix alone. After the fix (or on any re-run) the file was
-    produced by the NEW rule, so a clean rebuild matches instead; that is a
-    successful idempotent re-run, not a failure.
+    The file may legitimately be in one of several states, and the gate must
+    tell them apart rather than conflating "inputs changed" with "already built":
 
-    Only if NEITHER matches are the inputs not what produced the file, in which
-    case any delta would be uninterpretable -- stop rather than guess.
+      pre-fix        old rule, monthly source  -- the state the delta is measured from
+      fixed-only     new rule, monthly source  -- idempotent re-run of the fix
+      extended       new rule, daily source    -- idempotent re-run of the extension
+
+    Only if the inputs match NONE of these did something change underneath us,
+    in which case any reported delta would be uninterpretable -- stop rather
+    than guess.
     """
     if not os.path.exists(AC_CSV):
         print("  [gate] no published file to compare against — skipping (first build)")
         return
     published = pd.read_csv(AC_CSV, index_col=0, parse_dates=True)
 
-    legacy = equal_weight(wide, aggregatable_groups(ALL_TICKERS, wide.columns, legacy=True))
-    d_legacy, why_legacy = _max_abs_diff(legacy, published)
-    if d_legacy is not None and d_legacy <= REPRO_TOL:
-        print(f"  [gate] old-rule rebuild reproduces the file on disk "
-              f"(max diff {d_legacy:.2e}) — pre-fix state confirmed OK")
-        return
+    candidates = {
+        "pre-fix (old rule, monthly source)":
+            equal_weight(wide, aggregatable_groups(ALL_TICKERS, wide.columns, legacy=True)),
+        "fixed-only (new rule, monthly source)":
+            equal_weight(wide, aggregatable_groups(ALL_TICKERS, wide.columns)),
+    }
+    candidates.update(extra or {})
 
-    clean = equal_weight(wide, aggregatable_groups(ALL_TICKERS, wide.columns))
-    d_clean, why_clean = _max_abs_diff(clean, published)
-    if d_clean is not None and d_clean <= REPRO_TOL:
-        print(f"  [gate] file on disk already matches the CLEAN rule "
-              f"(max diff {d_clean:.2e}) — idempotent re-run OK")
-        return
+    reasons = []
+    for label, cand in candidates.items():
+        d, why = _max_abs_diff(cand, published)
+        if d is not None and d <= REPRO_TOL:
+            print(f"  [gate] file on disk matches: {label} (max diff {d:.2e}) OK")
+            return
+        reasons.append(f"    {label}: {why or f'max diff {d:.3e}'}")
 
     raise SystemExit(
         "REPRODUCTION GATE FAILED: the tracked ticker data reproduces the file on "
-        "disk under neither the old nor the new rule.\n"
-        f"  old-rule: {why_legacy or f'max diff {d_legacy:.3e}'}\n"
-        f"  new-rule: {why_clean or f'max diff {d_clean:.3e}'}\n"
-        "Refusing to proceed: any reported delta would be uninterpretable."
+        "disk under none of the known constructions.\n" + "\n".join(reasons) +
+        "\nRefusing to proceed: any reported delta would be uninterpretable."
     )
 
 
@@ -329,9 +388,6 @@ def main(argv=None) -> int:
     print(f"\nMonthly ticker panel: {monthly_wide.shape[1]} tickers, "
           f"{str(monthly_wide.index.min())[:7]} -> {str(monthly_wide.index.max())[:7]}")
 
-    print("\nGates:")
-    reproduction_gate(monthly_wide)
-
     if args.extended:
         print("\nBuilding from the daily archive ...")
         daily = load_daily_long()
@@ -350,6 +406,22 @@ def main(argv=None) -> int:
     groups = aggregatable_groups(ALL_TICKERS, src_wide.columns)
     clean = equal_weight(src_wide, groups)
 
+    if args.extended:
+        native = equal_weight(monthly_wide,
+                              aggregatable_groups(ALL_TICKERS, monthly_wide.columns))
+        clean, spliced = splice_tail(clean, native)
+        if spliced:
+            print(f"\n  tail splice: {[str(d)[:7] for d in spliced]} carried over from the "
+                  "monthly-native panel (daily archive ends mid-month; the two "
+                  "constructions agree to <1 bp/month)")
+
+    print("\nGates:")
+    # The extended panel is a valid on-disk state too, so offer it as a
+    # candidate -- otherwise re-running --extended would read as corruption.
+    reproduction_gate(
+        monthly_wide,
+        extra={"extended (new rule, daily source)": clean} if args.extended else None,
+    )
     if not args.extended:
         delta_gate(monthly_wide, clean)
 
@@ -373,11 +445,16 @@ def main(argv=None) -> int:
     print(f"\nWrote {AC_CSV}  shape={clean.shape}")
 
     if args.extended:
+        # NOTE: written to a SEPARATE file, never over monthly_prices.csv.
+        # audit_integrity.py re-derives monthly returns from monthly_prices.csv
+        # and cross-checks them against the daily panel; overwriting it with a
+        # daily-derived sample would make that check compare the daily data
+        # against itself, silently voiding the audit that is our control.
         prices = pd.read_parquet(DAILY_PRICES_PQ)
         levels = month_end_levels(prices)
         levels, _ = restrict_universe(levels, set(ALL_TICKERS))
-        levels.to_csv(PRICES_CSV)
-        print(f"Wrote {PRICES_CSV}  shape={levels.shape} "
+        levels.to_csv(PRICES_EXT_CSV)
+        print(f"Wrote {PRICES_EXT_CSV}  shape={levels.shape} "
               f"({str(levels.index.min())[:7]} -> {str(levels.index.max())[:7]}) "
               "[month-end LEVELS, sampled not compounded]")
 

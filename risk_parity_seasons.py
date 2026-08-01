@@ -61,6 +61,7 @@ from risk_parity_eval import (
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(HERE, "output", "risk_parity_seasons")
 PRICES_CSV = os.path.join(HERE, "output", "monthly_prices.csv")
+PRICES_EXT_CSV = os.path.join(HERE, "output", "monthly_prices_extended.csv")
 TICKER_CSV = os.path.join(HERE, "output", "monthly_returns_by_ticker.csv")
 
 # Inflation-hedge sleeves (the All-Weather weak spot defenders)
@@ -100,6 +101,36 @@ PRESETS = {
         bonds=["US Treasuries", "US Corporate Bonds", "US Municipal Bonds"],
         inh=["Gold/Precious Metals"], div=[],
         min_train=10, test=4, step=4, max_sleeves=7, min_sleeves=5),
+    # Both presets below require the EXTENDED asset-class panel
+    # (build_aggregates.py --extended), which compounds the daily archive to
+    # recover history Yahoo's monthly interval does not reach.
+    #
+    # long1986 exists because excluding the ^TNX/^FVX/^TYX yield levels moved
+    # the US Treasuries sleeve's start from 1985-02 to 1986-06 (its first real
+    # total-return fund, VUSTX). Sleeve availability is tested over the whole
+    # window, so under long1985 Treasuries drops out of the search entirely.
+    # Starting at 1986-06 keeps the full 7-sleeve universe.
+    "long1986": dict(
+        window=("1986-06-30", "2026-07-31"),
+        sleeves=["US Equity", "International Equity", "World Equity",
+                 "US Treasuries", "US Corporate Bonds", "US Municipal Bonds",
+                 "Gold/Precious Metals"],
+        equity=["US Equity", "International Equity", "World Equity"],
+        bonds=["US Treasuries", "US Corporate Bonds", "US Municipal Bonds"],
+        inh=["Gold/Precious Metals"], div=[],
+        min_train=10, test=4, step=4, max_sleeves=7, min_sleeves=5),
+    # long1980 trades sleeve breadth for ~5 more years of history -- crucially
+    # the Volcker shock and the 1980-82 bond bear, the only high-inflation
+    # stress in the record. Only five sleeves reach 1980, so min_sleeves drops
+    # to 4 to leave the search something to choose between (6 combos, not 1).
+    "long1980": dict(
+        window=("1980-02-29", "2026-07-31"),
+        sleeves=["US Equity", "World Equity", "US Corporate Bonds",
+                 "US Municipal Bonds", "Gold/Precious Metals"],
+        equity=["US Equity", "World Equity"],
+        bonds=["US Corporate Bonds", "US Municipal Bonds"],
+        inh=["Gold/Precious Metals"], div=[],
+        min_train=10, test=4, step=4, max_sleeves=5, min_sleeves=4),
 }
 
 
@@ -120,7 +151,13 @@ def load_augmented_returns() -> pd.DataFrame:
 
 
 def load_10y_yield() -> pd.Series:
-    px = pd.read_csv(PRICES_CSV, index_col=0, parse_dates=True)
+    # Prefer the extended month-end LEVELS when present: ^TNX in
+    # monthly_prices.csv starts 1985-01 (Yahoo's monthly limit), while the daily
+    # archive reaches 1962, so the pre-1985 presets would otherwise have no
+    # inflation-regime signal over their own window. Levels are month-end
+    # SAMPLED, never compounded -- a yield level is not a return.
+    path = PRICES_EXT_CSV if os.path.exists(PRICES_EXT_CSV) else PRICES_CSV
+    px = pd.read_csv(path, index_col=0, parse_dates=True)
     px.index = px.index.to_period("M").to_timestamp("M")
     tnx = px["^TNX"].dropna().sort_index()
     return tnx

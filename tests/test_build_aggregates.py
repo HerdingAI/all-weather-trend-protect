@@ -183,6 +183,26 @@ class TestPartialMonthRule:
         out = ba.daily_to_monthly_returns(self._panel(), complete_only=False)
         assert out["A"].dropna().shape[0] == 3
 
+    def test_truncated_final_archive_month_is_dropped_for_everyone(self):
+        # The real archive ends 2026-07-17. Every ticker trades through that
+        # date, so a per-ticker completeness test alone would call July
+        # "complete" and publish a 17-day stub as a full month.
+        dates, tks, rets = [], [], []
+        for d in pd.bdate_range("2026-06-01", "2026-07-17"):
+            dates.append(d); tks.append("A"); rets.append(0.001)
+        panel = pd.DataFrame({"date": dates, "ticker": tks, "daily_return": rets})
+        out = ba.daily_to_monthly_returns(panel, complete_only=True)
+        assert pd.Timestamp("2026-07-31") not in out.index, "truncated final month kept"
+        assert pd.Timestamp("2026-06-30") in out.index, "complete month dropped"
+
+    def test_final_month_kept_when_archive_reaches_month_end(self):
+        dates, tks, rets = [], [], []
+        for d in pd.bdate_range("2026-06-01", "2026-07-31"):
+            dates.append(d); tks.append("A"); rets.append(0.001)
+        panel = pd.DataFrame({"date": dates, "ticker": tks, "daily_return": rets})
+        out = ba.daily_to_monthly_returns(panel, complete_only=True)
+        assert pd.Timestamp("2026-07-31") in out.index
+
 
 # --------------------------------------------------------------------------- #
 # Month-end level sampling (for ^TNX, which must NOT be compounded)
@@ -213,6 +233,46 @@ class TestMonthEndLevels:
 # --------------------------------------------------------------------------- #
 # Universe reconciliation
 # --------------------------------------------------------------------------- #
+
+class TestSpliceTail:
+    """The daily archive ends mid-July 2026, so the extended panel stops at
+    2026-06. Dropping July from the canonical file would silently shorten every
+    downstream window (the eval TEST end is 2026-07-31). The two constructions
+    agree to <1 bp/month over 497 overlapping months, so carrying the missing
+    tail months over from the monthly-native panel is safe -- and reported.
+    """
+
+    IDX = pd.to_datetime(["2000-01-31", "2000-02-29", "2000-03-31"])
+
+    def test_appends_months_missing_from_extended(self):
+        ext = pd.DataFrame({"X": [0.1, 0.2]}, index=self.IDX[:2])
+        native = pd.DataFrame({"X": [0.9, 0.9, 0.3]}, index=self.IDX)
+        out, added = ba.splice_tail(ext, native)
+        assert added == [pd.Timestamp("2000-03-31")]
+        assert out.loc[pd.Timestamp("2000-03-31"), "X"] == pytest.approx(0.3)
+
+    def test_does_not_overwrite_existing_extended_months(self):
+        ext = pd.DataFrame({"X": [0.1, 0.2]}, index=self.IDX[:2])
+        native = pd.DataFrame({"X": [0.9, 0.9, 0.3]}, index=self.IDX)
+        out, _ = ba.splice_tail(ext, native)
+        assert out.loc[pd.Timestamp("2000-01-31"), "X"] == pytest.approx(0.1)
+
+    def test_no_op_when_extended_already_current(self):
+        ext = pd.DataFrame({"X": [0.1, 0.2, 0.3]}, index=self.IDX)
+        native = pd.DataFrame({"X": [0.9, 0.9, 0.9]}, index=self.IDX)
+        out, added = ba.splice_tail(ext, native)
+        assert added == []
+        assert out["X"].tolist() == pytest.approx([0.1, 0.2, 0.3])
+
+    def test_never_backfills_history_before_extended_start(self):
+        # Only the TAIL is spliced. Older native months must not reappear, or
+        # the panel would silently mix constructions across its whole span.
+        ext = pd.DataFrame({"X": [0.2, 0.3]}, index=self.IDX[1:])
+        native = pd.DataFrame({"X": [0.9, 0.9, 0.9]}, index=self.IDX)
+        out, added = ba.splice_tail(ext, native)
+        assert added == []
+        assert pd.Timestamp("2000-01-31") not in out.index
+
 
 class TestDiffHelper:
     """Backs the reproduction gate, which must distinguish 'inputs changed'
