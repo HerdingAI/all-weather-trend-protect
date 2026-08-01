@@ -27,18 +27,18 @@ OOS spans **1990-02-28 → 2026-07-31** (429 months, 35.8y) — every month is o
 
 | Metric | All-Weather (OOS) | Winner process (OOS) |
 |---|---:|---:|
-| CAGR (nominal) | 7.29% | **6.96%** |
-| Ann return (net) | 7.33% | **7.33%** |
+| CAGR (nominal) | 7.32% | **7.00%** |
+| Ann return (net) | 7.36% | **7.37%** |
 | Ann vol | 7.39% | **10.86%** |
-| Net Sharpe | 0.993 | **0.675** |
+| Net Sharpe | 0.996 | **0.679** |
 | Max drawdown | -20.31% | **-28.03%** |
 | Both-down ann ret | -26.15% | **-30.15%** |
 | Diversification ratio | n/a | **n/a** |
 | Corr w/ equity | 0.773 | **0.791** |
-| **CAGR (real, gold-deflated stress)** | 1.93% | **2.67%** |
+| **CAGR (real, gold-deflated stress)** | 1.83% | **2.58%** |
 
-- Block-bootstrap 95% CI on OOS Sharpe: [0.368, 1.056]
-- **Deflated Sharpe = 0.139** (P>0 = 0.79; trials = 300, incl. 10 folds).
+- Block-bootstrap 95% CI on OOS Sharpe: [0.371, 1.060]
+- **Deflated Sharpe = 0.143** (P>0 = 0.80; trials = 300, incl. 10 folds).
 
 ## 2b. What is the portfolio? (time-averaged winner weights across folds)
 
@@ -60,7 +60,7 @@ Average monthly net return in each economic season (OOS):
 
 | Season | All-Weather | Winner | Winner Sharpe |
 |---|---:|---:|---:|
-| GrowthUp InfUp | 0.38% | **0.52%** | — |
+| GrowthUp InfUp | 0.39% | **0.53%** | — |
 | GrowthUp InfDown | 0.94% | **0.95%** | — |
 | GrowthDown InfDown | 0.60% | **0.39%** | — |
 | GrowthDown InfUp *(stagflation / AW weak spot)* | -0.45% | **-0.80%** | -0.708 |
@@ -70,8 +70,8 @@ Average monthly net return in each economic season (OOS):
 
 ## 4. Inflation stress — does inflation eat it alive?
 
-- Nominal CAGR (OOS): **6.96%**  →  gold-deflated real CAGR: **2.67%**
-- All-Weather nominal 7.29% → real 1.93%
+- Nominal CAGR (OOS): **7.00%**  →  gold-deflated real CAGR: **2.58%**
+- All-Weather nominal 7.32% → real 1.83%
 
 > **Gold-deflated is a HARSH stress** (gold rises with inflation, so
 > deflating by gold measures return in *purchasing-power-of-gold* units).
@@ -91,7 +91,7 @@ Average monthly net return in each economic season (OOS):
 | 7 | 1980-02-29..2013-12-31 | 2014-02-28..2017-12-31 | US Equity,US Corporate Bonds,US Municipal Bonds,Gold/Precious Metals | EW | 64.2 | 0.604 | n/a | -28.67% | -12.66% |
 | 8 | 1980-02-29..2017-12-31 | 2018-02-28..2021-12-31 | US Equity,World Equity,US Corporate Bonds,US Municipal Bonds | EW | 65.0 | 0.823 | n/a | -30.06% | -13.02% |
 | 9 | 1980-02-29..2021-12-31 | 2022-02-28..2025-12-31 | US Equity,US Corporate Bonds,US Municipal Bonds,Gold/Precious Metals | EW | 66.7 | 0.927 | -0.476 | -29.99% | -19.33% |
-| 10 | 1980-02-29..2025-12-31 | 2026-02-28..2026-07-31 | US Equity,US Corporate Bonds,US Municipal Bonds,Gold/Precious Metals | EW | 64.2 | -0.420 | n/a | -89.79% | -10.42% |
+| 10 | 1980-02-29..2025-12-31 | 2026-02-28..2026-07-31 | US Equity,US Corporate Bonds,US Municipal Bonds,Gold/Precious Metals | EW | 64.2 | -0.247 | n/a | -89.79% | -9.11% |
 
 ## 6. Caveats
 
@@ -100,11 +100,7 @@ Average monthly net return in each economic season (OOS):
   CPI only if `--cpi-csv` is supplied; otherwise a harsh gold-deflated stress.
   **Add a CPI series for true real-return accounting** — this is the single biggest
   remaining gap.
-- **History length:** the long1985 preset uses the asset-class series that exist
-  back to 1985 (~41y) — the investable-as-of-1985 set. Sleeves that only start in
-  the ETF era (TIPS 2004, GLD 2004, DBC 2006, UUP 2007, EM bonds 2008) are NOT in
-  this preset; run `--preset modern` for the richer 2008+ universe. 1871 is not
-  available for these sleeves.
+- **History length:** the `long1980` preset uses the asset-class series that exist back to 1980 (~46y); ETF-era sleeves that inception later are excluded from it. Run `--preset modern` for the richer 2008+ universe.
 - **One inflation spike in-sample (2021-22):** the stagflation corner is still
   thinly sampled; per-season Sharpe is noisy. Read the bootstrap CI.
 - No vol target; no regime-conditioned/trend overlay yet (item 10).

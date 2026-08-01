@@ -27,18 +27,18 @@ OOS spans **1995-02-28 → 2026-07-31** (371 months, 30.9y) — every month is o
 
 | Metric | All-Weather (OOS) | Winner process (OOS) |
 |---|---:|---:|
-| CAGR (nominal) | 7.24% | **8.04%** |
-| Ann return (net) | 7.29% | **8.51%** |
-| Ann vol | 7.49% | **12.26%** |
-| Net Sharpe | 0.974 | **0.694** |
+| CAGR (nominal) | 7.27% | **8.09%** |
+| Ann return (net) | 7.32% | **8.56%** |
+| Ann vol | 7.49% | **12.27%** |
+| Net Sharpe | 0.978 | **0.698** |
 | Max drawdown | -20.31% | **-31.95%** |
 | Both-down ann ret | -26.04% | **-37.52%** |
 | Diversification ratio | n/a | **n/a** |
-| Corr w/ equity | 0.779 | **0.835** |
-| **CAGR (real, gold-deflated stress)** | 0.75% | **2.01%** |
+| Corr w/ equity | 0.779 | **0.836** |
+| **CAGR (real, gold-deflated stress)** | 0.64% | **1.92%** |
 
-- Block-bootstrap 95% CI on OOS Sharpe: [0.316, 1.064]
-- **Deflated Sharpe = 0.121** (P>0 = 0.74; trials = 280, incl. 8 folds).
+- Block-bootstrap 95% CI on OOS Sharpe: [0.321, 1.072]
+- **Deflated Sharpe = 0.125** (P>0 = 0.75; trials = 280, incl. 8 folds).
 
 ## 2b. What is the portfolio? (time-averaged winner weights across folds)
 
@@ -61,7 +61,7 @@ Average monthly net return in each economic season (OOS):
 
 | Season | All-Weather | Winner | Winner Sharpe |
 |---|---:|---:|---:|
-| GrowthUp InfUp | 0.45% | **0.70%** | — |
+| GrowthUp InfUp | 0.45% | **0.71%** | — |
 | GrowthUp InfDown | 0.91% | **1.03%** | — |
 | GrowthDown InfDown | 0.58% | **0.45%** | — |
 | GrowthDown InfUp *(stagflation / AW weak spot)* | -1.10% | **-1.21%** | -0.936 |
@@ -71,8 +71,8 @@ Average monthly net return in each economic season (OOS):
 
 ## 4. Inflation stress — does inflation eat it alive?
 
-- Nominal CAGR (OOS): **8.04%**  →  gold-deflated real CAGR: **2.01%**
-- All-Weather nominal 7.24% → real 0.75%
+- Nominal CAGR (OOS): **8.09%**  →  gold-deflated real CAGR: **1.92%**
+- All-Weather nominal 7.27% → real 0.64%
 
 > **Gold-deflated is a HARSH stress** (gold rises with inflation, so
 > deflating by gold measures return in *purchasing-power-of-gold* units).
@@ -90,7 +90,7 @@ Average monthly net return in each economic season (OOS):
 | 5 | 1985-02-28..2010-12-31 | 2011-02-28..2014-12-31 | US Equity,World Equity,US Corporate Bonds,US Municipal Bonds,Gold/Precious Metals | InvVar | 68.6 | 0.090 | n/a | -31.66% | -13.04% |
 | 6 | 1985-02-28..2014-12-31 | 2015-02-28..2018-12-31 | US Equity,World Equity,US Corporate Bonds,US Municipal Bonds,Gold/Precious Metals | InvVar | 69.0 | 0.335 | n/a | -30.69% | -12.06% |
 | 7 | 1985-02-28..2018-12-31 | 2019-02-28..2022-12-31 | US Equity,World Equity,US Corporate Bonds,US Municipal Bonds,Gold/Precious Metals | InvVar | 69.0 | 0.489 | -0.860 | -49.35% | -21.41% |
-| 8 | 1985-02-28..2022-12-31 | 2023-02-28..2026-07-31 | US Equity,World Equity,US Corporate Bonds,US Municipal Bonds,Gold/Precious Metals | InvVar | 68.4 | 1.286 | n/a | -29.71% | -8.10% |
+| 8 | 1985-02-28..2022-12-31 | 2023-02-28..2026-07-31 | US Equity,World Equity,US Corporate Bonds,US Municipal Bonds,Gold/Precious Metals | InvVar | 68.4 | 1.321 | n/a | -29.71% | -8.10% |
 
 ## 6. Caveats
 
@@ -99,11 +99,7 @@ Average monthly net return in each economic season (OOS):
   CPI only if `--cpi-csv` is supplied; otherwise a harsh gold-deflated stress.
   **Add a CPI series for true real-return accounting** — this is the single biggest
   remaining gap.
-- **History length:** the long1985 preset uses the asset-class series that exist
-  back to 1985 (~41y) — the investable-as-of-1985 set. Sleeves that only start in
-  the ETF era (TIPS 2004, GLD 2004, DBC 2006, UUP 2007, EM bonds 2008) are NOT in
-  this preset; run `--preset modern` for the richer 2008+ universe. 1871 is not
-  available for these sleeves.
+- **History length:** the `long1985` preset uses the asset-class series that exist back to 1985 (~41y); ETF-era sleeves that inception later are excluded from it. Run `--preset modern` for the richer 2008+ universe.
 - **One inflation spike in-sample (2021-22):** the stagflation corner is still
   thinly sampled; per-season Sharpe is noisy. Read the bootstrap CI.
 - No vol target; no regime-conditioned/trend overlay yet (item 10).

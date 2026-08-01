@@ -33,8 +33,8 @@ PASS,E1 coverage stats bounds,"vol>=0, pct_pos in [0,100], ann_ret in [-60,250]"
 PASS,E2 coverage rows==panel tickers,341 vs 341
 PASS,F1 not-on-Yahoo absent,24 confirmed absent from all outputs
 PASS,F2 daily-only recovery,"PAGPX: has daily, no monthly (documented quirk)"
-PASS,F2 daily-only recovery,"PIGLX: has daily, no monthly (documented quirk)"
-PASS,F2 daily-only recovery,"LOMMX: has daily, no monthly (documented quirk)"
 PASS,F2 daily-only recovery,"AUBAX: has daily, no monthly (documented quirk)"
+PASS,F2 daily-only recovery,"PIGLX: has daily, no monthly (documented quirk)"
 PASS,F2 daily-only recovery,"PADMX: has daily, no monthly (documented quirk)"
+PASS,F2 daily-only recovery,"LOMMX: has daily, no monthly (documented quirk)"
 PASS,F3 SPAXX empty (money mkt),confirmed empty in daily
