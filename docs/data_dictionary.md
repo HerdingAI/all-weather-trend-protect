@@ -234,18 +234,34 @@ filtered to the 336 present tickers).
 | | |
 |---|---|
 | Purpose | Wide matrix of equal-weighted monthly returns per asset class. |
-| Shape | **498 rows × 20 columns** (`Date` + 19 asset classes) |
-| Format | **Wide**. Range **1985-02-28 → 2026-07-31**. |
+| Shape | **638 rows × 19 columns** (`Date` + 18 asset classes) |
+| Format | **Wide**. Range **1973-06-30 → 2026-07-31**. |
+| Built by | `build_aggregates.py --extended` (not `pull_returns.py`) |
 
-**Asset-class columns (19):** `US Equity, International Equity, US Bonds, US
+**Asset-class columns (18):** `US Equity, International Equity, US Bonds, US
 Treasuries, US Corporate Bonds, US Municipal Bonds, Gold, Silver, US REIT,
-Commodities, Digital Assets, EM Bonds, Currency, Preferred Stock, Volatility,
+Commodities, Digital Assets, EM Bonds, Currency, Preferred Stock,
 Gold/Precious Metals, International Bonds, Money Market, World Equity`.
 
 **Aggregation:** each month, the equal-weighted mean of constituent tickers' monthly
-returns (using only tickers present that month). Individual stocks and sector ETFs are
-**excluded** from asset-class aggregates to avoid double-counting (they have their own
-sector files). Cells are `NaN` where no constituent has data that month.
+returns (using only tickers present that month). Cells are `NaN` where no constituent
+has data that month. Excluded from the aggregates:
+
+1. Individual stocks and sector ETFs, to avoid double-counting (they have their own
+   sector files).
+2. Series whose `pct_change` is not a return — the `YIELD` kind (`^TNX/^FVX/^TYX`),
+   the price-only indices (`^GSPC/^DJI/^IXIC/^RUT`), and `^VIX`. Defined once in
+   `pull_returns.py` §2b and applied by both the puller and the builder.
+
+> **Changed 2026-08-01.** Was 498 × 20 spanning 1985-02 → 2026-07 with 19 classes.
+> Two changes: exclusion (2) was documented but never implemented, which contaminated
+> `US Treasuries` with yield levels (corr −0.51 vs corrected, −289 bps/yr) and removed
+> the `Volatility` column entirely, since it was 100% `^VIX`. And history now extends
+> back by compounding the daily archive, so the panel starts 1973-06 rather than
+> 1985-02. Per-sleeve start dates vary widely — see `docs/coverage.md`.
+>
+> Companion file `coverage_asset_class_extended.csv` records each sleeve's start date
+> and constituent count over time.
 
 ---
 

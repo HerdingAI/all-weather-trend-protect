@@ -109,6 +109,22 @@ leverage is a separate, larger effort.
 Bond sleeves use Yahoo adjusted close (ETF total return incl. distributions). The only
 non-TR / non-investable sleeve was VIX, now excluded. No change needed.
 
+> ❌ **This section was wrong, and the review missed the largest data defect in the
+> repo (found 2026-08-01).** `US Treasuries` was *not* a clean total-return sleeve. The
+> aggregation in `pull_returns.py` averaged the `^TNX/^FVX/^TYX` **yield levels** into
+> it, despite `docs/methodology.md` documenting an exclusion the code never implemented.
+> Yields move opposite to bond prices, so the sleeve inverted: it correlates **−0.51**
+> with the corrected version and understates return by **289 bps/yr**. VIX was not "the
+> only" non-TR sleeve — it was the only one anybody had noticed.
+>
+> This bears directly on **§2a** above. That the cap bound on `US Treasuries` at exactly
+> 20.00% every year, which this review read as "the cap, not the optimizer, was
+> allocating," has a simpler explanation: a fabricated low-volatility bond series is
+> exactly what a variance-minimizing optimizer piles into. The diagnosis was a symptom
+> of the data defect, not of the cap.
+>
+> All measured results in this document predate the fix and are superseded.
+
 ## §3. Strategy-space gaps (did we explore the logical alternatives?)
 
 The brief asks for an All-Weather variant that wins where All-Weather is weak. The

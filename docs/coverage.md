@@ -11,7 +11,7 @@ How much data we have, how far back, and where the gaps are. All figures as of
 | Daily returns (long) | 341 | (same, minus 1st day each) | 2,714,743 rows | — |
 | Monthly prices | 336 / 342 | 1962-01-31 → 2026-07-31 | 775 month-ends | — |
 | Monthly returns (long) | 336 | 1962-02-28 → 2026-07-31 | 118,024 rows | — |
-| Asset-class composite | 19 classes | 1985-02-28 → 2026-07-31 | 498 months | — |
+| Asset-class composite | 18 classes | 1973-06-30 → 2026-07-31 | 638 months | — |
 | Sector composite | 17 groups | 1962-02-28 → 2026-07-31 | 774 months | — |
 
 The daily layer reaches **1927** because `^GSPC` has daily history back to 1927-12-30.
@@ -53,30 +53,42 @@ the oldest stocks (GE, IBM, HON, etc.) begins. (Daily and monthly pulls are sepa
 
 | Asset class | First month | Months | Ann return % | Ann vol % |
 |---|---|---|---|---|
-| US Equity | 1985-02 | 498 | 10.86 | 15.15 |
-| International Equity | 1985-02 | 498 | 8.24 | 17.69 |
-| US Treasuries | 1985-02 | 498 | 2.24 | 5.43 |
-| US Corporate Bonds | 1985-02 | 498 | 6.19 | 5.32 |
-| US Municipal Bonds | 1985-02 | 498 | 4.48 | 3.65 |
-| Gold/Precious Metals | 1985-02 | 498 | 11.48 | 33.24 |
-| World Equity | 1985-02 | 498 | 11.20 | 19.43 |
-| Volatility (^VIX) | 1990-02 | 438 | 23.87 | 74.97 |
-| US Bonds | 1987-01 | 475 | 5.03 | 4.19 |
-| US REIT | 1996-06 | 362 | 10.40 | 19.51 |
-| Commodities | 2002-08 | 288 | 5.07 | 21.80 |
+| US Equity | 1973-06 | 638 | 10.30 | 15.29 |
+| World Equity | 1973-06 | 638 | 10.23 | 20.05 |
+| Gold/Precious Metals | 1978-02 | 582 | 13.34 | 34.38 |
+| US Corporate Bonds | 1980-02 | 558 | 6.93 | 6.08 |
+| US Municipal Bonds | 1980-02 | 558 | 4.70 | 4.47 |
+| International Equity | 1983-06 | 518 | 8.08 | 17.47 |
+| US Treasuries | 1986-06 | 482 | 5.12 | 6.70 |
+| US Bonds | 1987-01 | 475 | 5.02 | 4.19 |
+| US REIT | 1996-06 | 362 | 10.39 | 19.51 |
+| Commodities | 2002-08 | 288 | 5.14 | 21.78 |
 | Gold | 2004-12 | 260 | 11.24 | 17.17 |
-| Silver | 2006-05 | 243 | 11.67 | 32.56 |
+| Silver | 2006-05 | 243 | 11.57 | 32.56 |
 | Currency | 2007-04 | 232 | 2.00 | 7.72 |
-| Preferred Stock | 2007-04 | 232 | 4.85 | 15.51 |
-| EM Bonds | 2008-01 | 223 | 5.19 | 11.42 |
-| International Bonds | 2009-02 | 210 | 2.09 | 6.20 |
-| Digital Assets | 2015-06 | 134 | 88.60 | 115.08 |
-| Money Market | 2023-05 | 35 | 0.00 | 0.00 |
+| Preferred Stock | 2007-04 | 232 | 4.83 | 15.51 |
+| EM Bonds | 2008-01 | 223 | 5.16 | 11.42 |
+| International Bonds | 2009-02 | 210 | 2.06 | 6.19 |
+| Digital Assets | 2015-06 | 134 | 88.59 | 115.08 |
+| Money Market | 2023-10 | 30 | 0.00 | 0.00 |
 
-**Reading this:** the start month reflects the *earliest constituent* with data. Asset
-classes "expand" over time as newer instruments (e.g. Digital Assets in 2015, Money
-Market in 2023) are added — the equal-weighted composite for those classes only exists
-from their first constituent's inception.
+> **Rebuilt 2026-08-01** by `build_aggregates.py --extended`. Two changes from the
+> figures published earlier:
+>
+> 1. **Yield levels are no longer averaged in as returns.** `US Treasuries` was
+>    2.24% / 5.43% starting 1985-02; that series was contaminated by `^TNX/^FVX/^TYX`
+>    and correlates −0.51 with the corrected one. It now starts **1986-06**, the
+>    inception of the first real total-return Treasury fund in the dataset (`VUSTX`).
+>    The **Volatility (^VIX)** row is gone entirely — a volatility index is a level,
+>    not a holdable return stream, so the sleeve no longer exists.
+> 2. **History extends backwards**, by compounding the daily archive rather than
+>    relying on Yahoo's monthly interval (which begins ~1985 for these instruments).
+>    Equity reaches 1973, gold/PM 1978, corporates and munis 1980 — bringing the
+>    Volcker shock and the 1980-82 bond bear into the sample.
+>
+> Start dates now differ sharply per sleeve, so a portfolio's usable window is set by
+> its *latest*-starting sleeve. See `output/coverage_asset_class_extended.csv` for
+> per-sleeve constituent counts over time.
 
 ## Universe composition (n = 342)
 

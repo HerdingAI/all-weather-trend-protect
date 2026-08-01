@@ -42,12 +42,34 @@ Full machine-readable results: `output/integrity_report.csv`. Narrative triage:
 prices. They are kept in `monthly_prices.csv` / `daily_prices.parquet` for continuity,
 but:
 - Their `pct_change` is **not a return** (a yield doubling is not a 100% gain).
-- They are **excluded** from asset-class and sector return aggregations.
+- They are **excluded** from asset-class and sector return aggregations
+  (`pull_returns.py` §2b) — but see the warning below: this was documented long
+  before it was true.
 - They have sparse daily data (122 / 122 / 77 internal NaN) because Yahoo does not
   report a yield every trading day in its history.
 
+Using them as a signal is fine and intended: `risk_parity_seasons.py` reads the 12-month
+change in the `^TNX` *level* as its inflation-regime proxy. It is only *return
+aggregation* that must exclude them.
+
 If you want Treasury *return* series, use the bond ETFs / Vanguard treasury funds
 instead (`VGIT, VGLT, VGSH, VFITX, VFIUX, VSBSX, VUSTX`, etc.).
+
+> ⚠️ **This exclusion was fiction until 2026-08-01.** The line above claimed it for a
+> long time; the code never did it. Yields were averaged into `US Treasuries`, and
+> because yields move opposite to bond prices the sleeve did not merely get noisier —
+> it *inverted*. The published series correlates **−0.51** with the corrected one and
+> understates return by **289 bps/yr** (2.24% vs 5.13%). Its first 16 months
+> (1985-02 → 1986-05) were pure artifact: no total-return Treasury fund exists in the
+> data before `VUSTX` (1986-06), so the sleeve was 100% yield changes over that span.
+>
+> Consequences worth knowing when reading older analysis:
+> - Any risk-parity result published before 2026-08-01 rests on the contaminated sleeve.
+>   The canonical winner allocated 20% to it — the cap binding exactly, which
+>   `docs/peer-review.md` §2a read as "the cap, not the optimizer, was allocating."
+>   An artificially low-volatility bond series is a sufficient explanation for that.
+> - The corrected sleeve starts 1986-06, so it no longer spans a window beginning 1985.
+>   That is why the `long1986` seasons preset exists.
 
 ## Nuance 3 — Money market funds read as 0% return
 

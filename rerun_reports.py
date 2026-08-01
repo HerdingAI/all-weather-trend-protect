@@ -129,9 +129,15 @@ def main(argv=None) -> int:
             print(" ".join(build_cmd(c)))
         return 0
 
+    # Longest-processing-time-first: cost scales with scheme count (2817 combos
+    # x n_schemes), and asym9 is 50 schemes vs round 1's 6. Submitting in the
+    # historical order would start the largest run last and leave it as a long
+    # single-threaded tail after everything else has finished.
+    cfgs.sort(key=lambda c: len(c["schemes"]), reverse=True)
+
     os.makedirs(args.log_dir, exist_ok=True)
     print(f"Re-running {len(cfgs)} eval rounds, {args.jobs} at a time, "
-          f"BLAS pinned to 1 thread/process.")
+          f"BLAS pinned to 1 thread/process, largest first.")
     print(f"Logs: {args.log_dir}\n")
 
     results, t0 = [], time.time()

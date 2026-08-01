@@ -1,14 +1,19 @@
 # Scripts Reference
 
-Three Python scripts run the system: a monthly puller, a daily puller, and an integrity
-auditor. All run from the repo root with the project venv.
+Five Python scripts run the data system: a monthly puller, a daily puller, an
+offline aggregate builder, an integrity auditor, and a report re-run driver. All run
+from the repo root with the project venv.
+
+> **Note on `pull_returns.py`:** it needs the network and always re-downloads. To
+> rebuild the asset-class aggregates *without* a re-pull, use `build_aggregates.py`,
+> which works entirely from tracked outputs.
 
 ## Environment
 
 | | |
 |---|---|
 | Python | 3.x (project venv at `.venv/`) |
-| Deps | `requirements.txt`: `yfinance>=1.5`, `pandas>=3.0`, `numpy>=2.0`, `pyarrow>=15`, `requests>=2.31` |
+| Deps | `requirements.txt`: `yfinance>=1.5`, `pandas>=3.0`, `numpy>=2.0`, `pyarrow>=15`, `requests>=2.31`, `pytest>=8.0` |
 | Install | `pip install -r requirements.txt` |
 | Run | `.venv/bin/python <script>` |
 
@@ -143,3 +148,80 @@ rm -f output/daily_prices.parquet        # drop daily cache to force re-download
   the three scripts, `requirements.txt`, `.gitignore`, `handoff.md`, `docs/`.
 - Gitignored: large daily CSVs (`daily_prices.csv`, `daily_returns_by_ticker.csv`),
   `__pycache__/`, `.venv/`. Regenerate the CSVs anytime via `pull_daily.py`.
+
+---
+
+## `build_aggregates.py` — offline asset-class aggregation
+
+**Role:** rebuilds `monthly_returns_by_asset_class.csv` from already-tracked outputs.
+No network. This is the script that fixed the yield-level contamination (see
+`docs/nuances_and_caveats.md` Nuance 2) and extended history back to 1973.
+
+Rebuilding offline rather than re-running `pull_returns.py` is deliberate: a re-pull
+would refresh ticker data as a side effect, making it impossible to attribute the
+resulting change to the fix alone.
+
+| Mode | Source | Output |
+|---|---|---|
+| default | `monthly_returns_by_ticker.csv` | fix only, 1985-02 → 2026-07 |
+| `--extended` | `daily_returns_by_ticker.parquet` | fix + history, 1973-06 → 2026-07 |
+| `--dry-run` | — | compute and report, write nothing |
+
+```bash
+.venv/bin/python build_aggregates.py --extended
+```
+
+**Extra outputs under `--extended`:**
+- `monthly_prices_extended.csv` — month-end **levels** (sampled, never compounded),
+  so `risk_parity_seasons.py` can read `^TNX` back to 1962 for its inflation-regime
+  signal. Deliberately *not* written over `monthly_prices.csv`, which
+  `audit_integrity.py` cross-checks against the daily panel.
+- `coverage_asset_class_extended.csv` — per-sleeve start date and constituent count.
+
+**Two gates, both fatal on failure:**
+1. *Reproduction* — the tracked inputs must reproduce the file on disk under one of the
+   known constructions (pre-fix, fixed-only, extended). If none match, something changed
+   underneath and any reported delta would be uninterpretable.
+2. *Delta* — exactly three sleeves may change (`US Treasuries`, `US Equity`,
+   `Volatility`). A fourth means the exclusion policy is wrong.
+
+**Partial months** are dropped at two levels: the archive's own truncated edge month
+(the daily file ends mid-month) and any ticker's incomplete first/last month. The
+truncated tail is then carried over from the monthly-native panel so downstream windows
+keep their month-end.
+
+---
+
+## `rerun_reports.py` — regenerate every eval report
+
+**Role:** re-runs all twelve `risk_parity_eval.py` rounds after a data change.
+
+Each round's configuration is recovered from its own `report_eval.md` header, not from
+the docs. This matters: `--schemes` defaults to `SCHEME_ORDER`, which grew from 6 to 50
+entries across the rounds, so re-running an old round without an explicit list silently
+produces a much larger run. The documented invocations are also wrong in two places
+(round 1 omits `--out-dir` and would clobber `output/risk_parity_eval`; asym8 lists 42
+schemes where its report shows 45).
+
+```bash
+.venv/bin/python rerun_reports.py --list          # show recovered commands
+.venv/bin/python rerun_reports.py --jobs 8        # run, 8 at a time
+```
+
+Runs are parallel with BLAS pinned to one thread per process — without pinning each
+process spawns ~20 BLAS threads and oversubscription makes the batch slower than
+running serially. Rounds are submitted largest-first so the 50-scheme round does not
+become a long tail. Logs land in `output/_rerun_logs/`.
+
+---
+
+## `tests/` — pytest suite
+
+```bash
+.venv/bin/python -m pytest tests/ -q
+```
+
+Covers the pure functions in `build_aggregates.py`: the return-series policy, grouping,
+equal-weighting, daily→monthly compounding, the partial-month rules, month-end level
+sampling, tail splicing, and universe reconciliation. The end-to-end data checks are
+the in-script gates above, in the style of `audit_integrity.py`.

@@ -25,9 +25,27 @@ gold-deflated purchasing-power stress). All v2 rigor retained (20% cap, Ledoit-W
 10 bps costs, 5 schemes, Deflated Sharpe, bootstrap CIs, diversification + correlations,
 Volatility excluded).
 
-Presets: `--preset long1985` (CANONICAL — backtests to **1985 (~41y)** using the investable-as-of-1985 sleeves: equities + treasuries + corporates + munis + gold via the VGPMX/gold-futures TR proxy; 8 walk-forward folds, OOS 1995–2026) and `--preset modern` (2008+, 13 sleeves incl TIPS; richer search, shorter history).
+Presets (window start governs which sleeves are available, since a sleeve must span the
+whole window to enter the search):
 
-Run: `.venv/bin/python risk_parity_seasons.py --preset long1985`  (options: `--cpi-csv PATH`,
+| Preset | Window | Sleeves | Notes |
+|---|---|---|---|
+| `long1986` | 1986-06 → 2026-07 (~40y) | 7 | **CANONICAL.** The full universe including US Treasuries. |
+| `long1980` | 1980-02 → 2026-07 (~46y) | 5 | Longest history — reaches the Volcker shock and the 1980-82 bond bear. No treasuries or international equity. `min_sleeves` drops to 4 so the search has something to choose between. |
+| `long1985` | 1985-02 → 2026-07 (~41y) | 6 | The historical canonical preset. **Now excludes US Treasuries** — see below. |
+| `modern` | 2008-01 → 2026-07 | 13 | Richer search incl. TIPS, shorter history. |
+
+> **Why `long1986` exists.** Excluding the `^TNX/^FVX/^TYX` yield levels from the return
+> aggregates moved the `US Treasuries` sleeve's start from 1985-02 to **1986-06**, the
+> inception of the first real total-return Treasury fund in the dataset (`VUSTX`). The
+> earlier start had been fabricated from yield changes. Because sleeve availability is
+> tested across the whole window, `long1985` now silently drops treasuries entirely,
+> leaving a 6-sleeve search. `long1986` starts two quarters later to keep all seven.
+>
+> `long1980` and `long1986` both require the extended panel
+> (`build_aggregates.py --extended`).
+
+Run: `.venv/bin/python risk_parity_seasons.py --preset long1986`  (options: `--cpi-csv PATH`,
 `--schemes ...`, `--cap`, `--cost-bps`, `--min-train-years`, `--test-years`).
 Outputs in `output/risk_parity_seasons/`: `report_seasons.md` (canonical),
 `oos_walkforward_returns.csv`, `per_fold.csv`, `diagnostics.csv`,
