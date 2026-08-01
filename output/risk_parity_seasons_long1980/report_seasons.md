@@ -2,12 +2,13 @@
 
 *Research / illustration only. Not investment advice.*
 
-> Re-thought after two critiques. (1) **No more single 10y/8y split:** this
-> uses **walk-forward cross-validation** across the full 2008–2026 multi-regime
-> history (GFC, ZIRP, taper, hiking, COVID, 2022 stagflation, 2023 bank stress),
-> with **four-seasons (growth × inflation) regime scoring** — Bridgewater's actual
-> framework — with **stagflation weighted 2x** (the All-Weather weak spot).
-> **Inflation made visible:** inflation-hedge sleeves are in the universe (TIPS, gold, silver, commodities),
+> **Long-history preset `long1980` (1980–2026, ~46y).** Uses the asset-class series that exist across the whole
+> window — the investable-as-of-then universe (equities, corporates, munis,
+> gold via the VGPMX/gold-futures TR proxy, plus treasuries where they reach
+> back far enough) — and walks forward across the regimes it spans (1980-82
+> Volcker where included, 1987 crash, 1994 bond crash, 1998 LTCM, 2000 dot-com,
+> 2008 GFC, ZIRP, 2013 taper, 2020 COVID, 2022 stagflation).
+> **Inflation made visible:** inflation-hedge sleeves are in the universe (Gold/Precious Metals),
 > and **real returns** are reported (gold-deflated purchasing-power stress — NOT literal CPI; provide --cpi-csv for true real).
 
 ## 1. Setup
@@ -34,7 +35,7 @@ OOS spans **1990-02-28 → 2026-07-31** (429 months, 35.8y) — every month is o
 | Both-down ann ret | -26.15% | **-30.15%** |
 | Diversification ratio | n/a | **n/a** |
 | Corr w/ equity | 0.773 | **0.791** |
-| **CAGR (real, gold-deflated stress)** | 1.26% | **1.52%** |
+| **CAGR (real, gold-deflated stress)** | 1.93% | **2.67%** |
 
 - Block-bootstrap 95% CI on OOS Sharpe: [0.368, 1.056]
 - **Deflated Sharpe = 0.139** (P>0 = 0.79; trials = 300, incl. 10 folds).
@@ -69,8 +70,8 @@ Average monthly net return in each economic season (OOS):
 
 ## 4. Inflation stress — does inflation eat it alive?
 
-- Nominal CAGR (OOS): **6.96%**  →  gold-deflated real CAGR: **1.52%**
-- All-Weather nominal 7.29% → real 1.26%
+- Nominal CAGR (OOS): **6.96%**  →  gold-deflated real CAGR: **2.67%**
+- All-Weather nominal 7.29% → real 1.93%
 
 > **Gold-deflated is a HARSH stress** (gold rises with inflation, so
 > deflating by gold measures return in *purchasing-power-of-gold* units).
@@ -99,8 +100,11 @@ Average monthly net return in each economic season (OOS):
   CPI only if `--cpi-csv` is supplied; otherwise a harsh gold-deflated stress.
   **Add a CPI series for true real-return accounting** — this is the single biggest
   remaining gap.
-- **History length:** modern preset uses the full ETF-era multi-sleeve set from
-  ~2008 (18.6y). For the ~41y investable-as-of-1985 view, run `--preset long1985`.
+- **History length:** the long1985 preset uses the asset-class series that exist
+  back to 1985 (~41y) — the investable-as-of-1985 set. Sleeves that only start in
+  the ETF era (TIPS 2004, GLD 2004, DBC 2006, UUP 2007, EM bonds 2008) are NOT in
+  this preset; run `--preset modern` for the richer 2008+ universe. 1871 is not
+  available for these sleeves.
 - **One inflation spike in-sample (2021-22):** the stagflation corner is still
   thinly sampled; per-season Sharpe is noisy. Read the bootstrap CI.
 - No vol target; no regime-conditioned/trend overlay yet (item 10).

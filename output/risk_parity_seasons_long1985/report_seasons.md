@@ -2,7 +2,7 @@
 
 *Research / illustration only. Not investment advice.*
 
-> **Long-history preset `long1986` (1986–2026, ~40y).** Uses the asset-class series that exist across the whole
+> **Long-history preset `long1985` (1985–2026, ~41y).** Uses the asset-class series that exist across the whole
 > window — the investable-as-of-then universe (equities, corporates, munis,
 > gold via the VGPMX/gold-futures TR proxy, plus treasuries where they reach
 > back far enough) — and walks forward across the regimes it spans (1980-82
@@ -13,9 +13,9 @@
 
 ## 1. Setup
 
-- Window: 1986-06-30 → 2026-07-31 (40.1 years, 482 months).
-- Sleeves (7): US Equity, International Equity, World Equity, US Treasuries, US Corporate Bonds, US Municipal Bonds, Gold/Precious Metals. Inflation hedges: Gold/Precious Metals.
-- Walk-forward folds: 8 (expanding train min 10y, test 4y, step 4y). Trials/fold = 145.
+- Window: 1985-02-28 → 2026-07-31 (41.4 years, 498 months).
+- Sleeves (6): US Equity, International Equity, World Equity, US Corporate Bonds, US Municipal Bonds, Gold/Precious Metals. Inflation hedges: Gold/Precious Metals.
+- Walk-forward folds: 8 (expanding train min 10y, test 4y, step 4y). Trials/fold = 35.
 - Regimes: Growth = sign(US Equity 12m return); Inflation = sign(10y yield 12m Δ).
 - 11/36 both-down months are stagflation (confirms stagflation = the AW weak spot).
 - Constraints: long-only, no leverage, 20% cap, 10 bps/side, Ledoit-Wolf, trailing 36m, schemes ['EW', 'InvVol', 'InvVar', 'ERC', 'MinVar'].
@@ -23,22 +23,22 @@
 
 ## 2. Walk-forward OOS aggregate (concatenated held-out test periods)
 
-OOS spans **1996-06-30 → 2026-07-31** (355 months, 29.6y) — every month is out-of-sample (selected on prior data only).
+OOS spans **1995-02-28 → 2026-07-31** (371 months, 30.9y) — every month is out-of-sample (selected on prior data only).
 
 | Metric | All-Weather (OOS) | Winner process (OOS) |
 |---|---:|---:|
-| CAGR (nominal) | 6.81% | **5.98%** |
-| Ann return (net) | 6.89% | **6.20%** |
-| Ann vol | 7.58% | **8.64%** |
-| Net Sharpe | 0.909 | **0.718** |
-| Max drawdown | -20.31% | **-24.46%** |
-| Both-down ann ret | -26.04% | **-28.16%** |
+| CAGR (nominal) | 7.24% | **8.04%** |
+| Ann return (net) | 7.29% | **8.51%** |
+| Ann vol | 7.49% | **12.26%** |
+| Net Sharpe | 0.974 | **0.694** |
+| Max drawdown | -20.31% | **-31.95%** |
+| Both-down ann ret | -26.04% | **-37.52%** |
 | Diversification ratio | n/a | **n/a** |
-| Corr w/ equity | 0.783 | **0.846** |
-| **CAGR (real, gold-deflated stress)** | 1.18% | **0.61%** |
+| Corr w/ equity | 0.779 | **0.835** |
+| **CAGR (real, gold-deflated stress)** | 0.75% | **2.01%** |
 
-- Block-bootstrap 95% CI on OOS Sharpe: [0.350, 1.140]
-- **Deflated Sharpe = 0.055** (P>0 = 0.61; trials = 1160, incl. 8 folds).
+- Block-bootstrap 95% CI on OOS Sharpe: [0.316, 1.064]
+- **Deflated Sharpe = 0.121** (P>0 = 0.74; trials = 280, incl. 8 folds).
 
 ## 2b. What is the portfolio? (time-averaged winner weights across folds)
 
@@ -50,10 +50,10 @@ fold), with investable proxies:
 |---|---:|---:|---|
 | US Corporate Bonds | 20.00% | 20.00% | LQD |
 | US Municipal Bonds | 20.00% | 20.00% | MUB |
-| US Treasuries | 20.00% | 20.00% | IEF / TLT blend |
 | US Equity | 20.00% | 20.00% | VTI (or SPY) |
-| World Equity | 16.51% |   n/a  | ACWI / MSCI World TR index |
-| Gold/Precious Metals | 11.06% | 20.00% | VGPMX / gold-futures TR index (pre-GLD proxy) |
+| World Equity | 19.20% | 20.00% | ACWI / MSCI World TR index |
+| Gold/Precious Metals | 18.99% | 20.00% | VGPMX / gold-futures TR index (pre-GLD proxy) |
+| International Equity | 14.50% |   n/a  | VXUS (or VEA) |
 
 ## 3. The four seasons — per-regime OOS performance (the whole point)
 
@@ -61,18 +61,18 @@ Average monthly net return in each economic season (OOS):
 
 | Season | All-Weather | Winner | Winner Sharpe |
 |---|---:|---:|---:|
-| GrowthUp InfUp | 0.39% | **0.42%** | — |
-| GrowthUp InfDown | 0.87% | **0.84%** | — |
-| GrowthDown InfDown | 0.64% | **0.39%** | — |
-| GrowthDown InfUp *(stagflation / AW weak spot)* | -0.68% | **-0.86%** | -0.729 |
+| GrowthUp InfUp | 0.45% | **0.70%** | — |
+| GrowthUp InfDown | 0.91% | **1.03%** | — |
+| GrowthDown InfDown | 0.58% | **0.45%** | — |
+| GrowthDown InfUp *(stagflation / AW weak spot)* | -1.10% | **-1.21%** | -0.936 |
 
 > A truly resilient portfolio is **positive (or flat) in all four seasons**,
 > especially stagflation. If it leans on any one season, that's a hidden regime bet.
 
 ## 4. Inflation stress — does inflation eat it alive?
 
-- Nominal CAGR (OOS): **5.98%**  →  gold-deflated real CAGR: **0.61%**
-- All-Weather nominal 6.81% → real 1.18%
+- Nominal CAGR (OOS): **8.04%**  →  gold-deflated real CAGR: **2.01%**
+- All-Weather nominal 7.24% → real 0.75%
 
 > **Gold-deflated is a HARSH stress** (gold rises with inflation, so
 > deflating by gold measures return in *purchasing-power-of-gold* units).
@@ -83,14 +83,14 @@ Average monthly net return in each economic season (OOS):
 
 | Fold | TRAIN | TEST | Combo | Scheme | Train score | TEST Sharpe | TEST stag Sharpe | TEST both-down ann | TEST maxDD |
 |---:|---|---|---|---|---:|---:|---:|---:|---:|
-| 1 | 1986-06-30..1996-04-30 | 1996-06-30..2000-04-30 | US Equity,US Treasuries,US Corporate Bonds,US Municipal Bonds,Gold/Precious Metals | InvVol | 68.9 | 0.344 | n/a | -24.83% | -12.51% |
-| 2 | 1986-06-30..2000-04-30 | 2000-06-30..2004-04-30 | US Equity,World Equity,US Treasuries,US Corporate Bonds,US Municipal Bonds,Gold/Precious Metals | ERC | 74.3 | 1.092 | n/a | -25.84% | -7.55% |
-| 3 | 1986-06-30..2004-04-30 | 2004-06-30..2008-04-30 | US Equity,World Equity,US Treasuries,US Corporate Bonds,US Municipal Bonds,Gold/Precious Metals | MinVar | 77.3 | 2.117 | n/a | -12.29% | -2.72% |
-| 4 | 1986-06-30..2008-04-30 | 2008-06-30..2012-04-30 | US Equity,World Equity,US Treasuries,US Corporate Bonds,US Municipal Bonds,Gold/Precious Metals | MinVar | 68.6 | 0.457 | n/a | -42.93% | -21.53% |
-| 5 | 1986-06-30..2012-04-30 | 2012-06-30..2016-04-30 | US Equity,World Equity,US Treasuries,US Corporate Bonds,US Municipal Bonds,Gold/Precious Metals | MinVar | 70.1 | 0.848 | n/a | -15.80% | -5.68% |
-| 6 | 1986-06-30..2016-04-30 | 2016-06-30..2020-04-30 | US Equity,World Equity,US Treasuries,US Corporate Bonds,US Municipal Bonds | InvVol | 71.3 | 0.760 | n/a | -29.49% | -9.11% |
-| 7 | 1986-06-30..2020-04-30 | 2020-06-30..2024-04-30 | US Equity,US Treasuries,US Corporate Bonds,US Municipal Bonds,Gold/Precious Metals | InvVol | 68.4 | 0.230 | -0.528 | -33.14% | -20.18% |
-| 8 | 1986-06-30..2024-04-30 | 2024-06-30..2026-07-31 | US Equity,US Treasuries,US Corporate Bonds,US Municipal Bonds,Gold/Precious Metals | InvVol | 68.9 | 1.512 | n/a | -24.14% | -8.97% |
+| 1 | 1985-02-28..1994-12-31 | 1995-02-28..1998-12-31 | US Equity,International Equity,World Equity,US Corporate Bonds,US Municipal Bonds,Gold/Precious Metals | InvVar | 62.6 | 0.852 | n/a | -35.38% | -15.33% |
+| 2 | 1985-02-28..1998-12-31 | 1999-02-28..2002-12-31 | US Equity,World Equity,US Corporate Bonds,US Municipal Bonds,Gold/Precious Metals | InvVar | 72.1 | 0.718 | n/a | -27.44% | -13.33% |
+| 3 | 1985-02-28..2002-12-31 | 2003-02-28..2006-12-31 | US Equity,World Equity,US Corporate Bonds,US Municipal Bonds,Gold/Precious Metals | InvVar | 74.3 | 1.532 | n/a | -44.85% | -7.76% |
+| 4 | 1985-02-28..2006-12-31 | 2007-02-28..2010-12-31 | US Equity,World Equity,US Corporate Bonds,US Municipal Bonds,Gold/Precious Metals | InvVar | 69.4 | 0.565 | n/a | -50.43% | -31.95% |
+| 5 | 1985-02-28..2010-12-31 | 2011-02-28..2014-12-31 | US Equity,World Equity,US Corporate Bonds,US Municipal Bonds,Gold/Precious Metals | InvVar | 68.6 | 0.090 | n/a | -31.66% | -13.04% |
+| 6 | 1985-02-28..2014-12-31 | 2015-02-28..2018-12-31 | US Equity,World Equity,US Corporate Bonds,US Municipal Bonds,Gold/Precious Metals | InvVar | 69.0 | 0.335 | n/a | -30.69% | -12.06% |
+| 7 | 1985-02-28..2018-12-31 | 2019-02-28..2022-12-31 | US Equity,World Equity,US Corporate Bonds,US Municipal Bonds,Gold/Precious Metals | InvVar | 69.0 | 0.489 | -0.860 | -49.35% | -21.41% |
+| 8 | 1985-02-28..2022-12-31 | 2023-02-28..2026-07-31 | US Equity,World Equity,US Corporate Bonds,US Municipal Bonds,Gold/Precious Metals | InvVar | 68.4 | 1.286 | n/a | -29.71% | -8.10% |
 
 ## 6. Caveats
 
