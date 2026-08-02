@@ -47,6 +47,37 @@ PV_ANNUAL = {
 }
 PV_SUMMARY = dict(cagr=8.47, stdev=19.72, maxdd=-61.78, sharpe=0.28, sortino=0.47)
 
+# ORDERING-SENSITIVE evidence. Tests 1-3 are all blind to the order of months
+# before GLD exists: test 1 only sees 2004-12 onward, test 2 compounds within
+# calendar years, and test 3's CAGR is order-invariant while its max drawdown is
+# fixed by the 1980-1999 trough. Permuting 1996-98 and 2002-03 left every one of
+# their headline numbers unchanged while moving gold's dot-com return from
+# +7.89% to +24.24% -- the property the study most needs was the one nothing
+# checked. Drawdowns and rolling returns DO depend on the path, so PV's own
+# tables become a real constraint on ordering.
+PV_STRESS_DD = {                      # peak-to-trough WITHIN each window
+    "Oil Crisis":      ("1973-10-31", "1974-03-31", -2.00),
+    "Black Monday":    ("1987-09-30", "1987-11-30", 0.00),
+    "Asian Crisis":    ("1997-07-31", "1998-01-31", -13.26),
+    "Russian Default": ("1998-07-31", "1998-10-31", -7.73),
+    "Dotcom Crash":    ("2000-03-31", "2002-10-31", -12.24),
+    "Subprime Crisis": ("2007-11-30", "2009-03-31", -25.83),
+    "COVID-19 Start":  ("2020-01-31", "2020-03-31", -0.86),
+}
+PV_WORST_DD = [                       # (start, trough month, depth %)
+    ("1980-10", "1999-08", -61.78), ("1975-01", "1976-08", -44.24),
+    ("2011-09", "2015-12", -42.91), ("2008-03", "2008-10", -25.83),
+    ("1980-02", "1980-03", -24.27), ("1973-07", "1973-10", -20.49),
+    ("1978-11", "1978-11", -20.28), ("1974-04", "1974-06", -16.62),
+]
+PV_ROLLING = {                        # months -> (average, high, low) %
+    12: (10.92, 179.42, -37.71),
+    36: (7.68, 70.26, -15.32),
+    60: (6.74, 36.39, -14.69),
+    120: (5.42, 24.75, -5.99),
+    180: (5.11, 15.89, -3.63),
+}
+
 CONTROL = dict(corr=0.9998, mad_bps=7.2, ret_pp=0.11)
 PASS = dict(te_ratio=0.30, ret_pp=1.00)
 ANNUAL_TOL_PP = 0.60          # per-year agreement tolerance, percentage points
@@ -179,6 +210,73 @@ def main() -> int:
     print(f"    from Sortino {PV_SUMMARY['sortino']}: {arith - PV_SUMMARY['sortino']*dsd:.2f}%")
     print("    Both land in the 1972-2026 T-bill range (~4.3-5.0%), so PV's lower")
     print("    Sharpe/Sortino reflect their rf convention, not a different series.")
+
+    # ---- TEST 4: ordering-sensitive path checks ----------------------------
+    print("\n" + "-" * 78)
+    print("TEST 4 — path-dependent checks (what tests 1-3 structurally cannot see)")
+    print("-" * 78)
+    g72 = g[g.index >= "1972-01-01"]
+    wc = (1 + g72).cumprod()
+    under = wc / wc.cummax() - 1.0
+
+    # PV's stress table is computed on DAILY data; ours is month-end. Month-end
+    # sampling cannot see an intra-month trough, so a monthly drawdown is
+    # bounded above by the daily one and is expected to be SHALLOWER. The
+    # meaningful test is therefore directional -- a monthly figure DEEPER than
+    # the daily figure is impossible and would prove a defect -- plus a bound on
+    # how much shallower it may be. A symmetric tolerance here would be testing
+    # sampling resolution, not the data.
+    print("  a) peak-to-trough within each PV stress window (monthly vs PV daily):")
+    n_bad = 0
+    for name, (a, b, pv_dd) in PV_STRESS_DD.items():
+        win = g72.loc[a:b]
+        if win.empty:
+            continue
+        mine = maxdd(win) * 100
+        deeper = mine < pv_dd - 1e-9                 # impossible if data is sound
+        too_shallow = (mine - pv_dd) > 3.00          # month-end miss shouldn't exceed this
+        ok = not (deeper or too_shallow)
+        n_bad += (not ok)
+        why = "DEEPER THAN DAILY" if deeper else ("gap too wide" if too_shallow else "")
+        print(f"     {name:17s} mine {mine:7.2f}%  PV {pv_dd:7.2f}%  "
+              f"{'PASS' if ok else 'FAIL ' + why}")
+    if n_bad:
+        failures.append(f"{n_bad} stress-window drawdown mismatch(es)")
+
+    print("  b) the worst drawdowns, matched by depth AND date:")
+    bad_dd = 0
+    for start, trough, pv_dd in PV_WORST_DD:
+        seg = under.loc[start:trough]
+        if seg.empty:
+            continue
+        mine = seg.min() * 100
+        d = abs(mine - pv_dd)
+        ok = d <= 2.00
+        bad_dd += (not ok)
+        print(f"     {start}..{trough}  mine {mine:7.2f}%  PV {pv_dd:7.2f}%  "
+              f"-> {'PASS' if ok else 'FAIL'}")
+    if bad_dd > 1:
+        failures.append(f"{bad_dd} worst-drawdown mismatches")
+
+    print("  c) rolling-return extremes (average / high / low):")
+    bad_roll = 0
+    for months, (pv_avg, pv_hi, pv_lo) in PV_ROLLING.items():
+        if len(g72) <= months:
+            continue
+        ratio = (wc.values[months:] / wc.values[:-months]) ** (12.0 / months) - 1.0
+        avg, hi, lo = ratio.mean() * 100, ratio.max() * 100, ratio.min() * 100
+        d = max(abs(avg - pv_avg), abs(hi - pv_hi), abs(lo - pv_lo))
+        ok = d <= 2.50
+        bad_roll += (not ok)
+        print(f"     {months:3d}m  mine {avg:6.2f}/{hi:7.2f}/{lo:7.2f}  "
+              f"PV {pv_avg:6.2f}/{pv_hi:7.2f}/{pv_lo:7.2f}  "
+              f"worst {d:5.2f}  -> {'PASS' if ok else 'FAIL'}")
+    if bad_roll > 1:
+        failures.append(f"{bad_roll} rolling-window mismatches")
+
+    print("\n  These constrain the ORDER of months, not just their multiset: a")
+    print("  permutation leaving CAGR and annual returns untouched still moves")
+    print("  drawdown depths and rolling extremes, so it cannot pass here.")
 
     # ---- verdict -----------------------------------------------------------
     print("\n" + "=" * 78)
