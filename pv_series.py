@@ -14,10 +14,22 @@ PV CONVENTIONS, LEARNED THE HARD WAY
    mid-June 2021, and its 2021-06 stub only shows up as a reconciliation
    failure. Compounding a stub as a full month is a real defect.
 
-3. PV's `-0.00%` minus sign is MEANINGFUL. It denotes a small negative that
-   rounds to two decimals, as distinct from `0.00%`. DFSVX has one of each,
-   and honouring the sign bit is what reproduces PV's % positive exactly.
-   Do not normalise these to plain 0.0.
+3. Near-zero months are AMBIGUOUS, and % positive cannot be reproduced
+   exactly. PV computes it on unrounded data; a month printed as `0.00%` may
+   be a tiny positive or a tiny negative, and the printed sign is not a
+   reliable guide.
+
+   This was got wrong once, on one series, and the correction is kept visible
+   rather than edited away. DFSVX has `0.00` and `-0.00`; honouring the sign
+   bit reproduced its 61.35% exactly, so the sign was taken to be meaningful.
+   DFSCX then falsified that: its single `0.00` month must NOT count as
+   positive to reach PV's 62.53%. One series is not enough to establish a
+   convention -- the same mistake, at a smaller scale, as inferring an edge
+   from one window.
+
+   So % positive is compared with a tolerance of one month (100/n pp). Every
+   other statistic still has to match tightly; this is the only one softened,
+   and only by the exact amount the ambiguity justifies.
 
 The `balance` column is PV's own compounded path. It is a redundant encoding
 of the returns -- good for catching transcription errors, NOT an independent
@@ -64,8 +76,14 @@ def population_moments(x: np.ndarray) -> tuple[float, float, float]:
 
 
 def positive_mask(x: np.ndarray) -> np.ndarray:
-    """PV counts `0.00` as positive and `-0.00` as not. See convention 3."""
-    return (x > 0) | ((x == 0) & ~np.signbit(x))
+    """Strictly positive months.
+
+    NOT sign-bit aware: see convention 3. A near-zero month's printed sign
+    does not reliably tell us the sign of PV's unrounded value, so the
+    ambiguity is absorbed by a one-month tolerance in check_distribution
+    rather than by a rule here that only fits one series.
+    """
+    return x > 0
 
 
 # Returns are published to 2dp, so each month carries a rounding error uniform
@@ -113,10 +131,19 @@ def check_distribution(r: pd.Series, pv_stats: dict,
                maximum=float(x.max()),
                pct_positive=float(positive_mask(x).mean() * 100),
                skew=skew, excess_kurtosis=exkurt)
+    # One near-zero month may fall either side of PV's unrounded threshold
+    # (100/n pp), plus PV's own 2dp display rounding on the stated figure.
+    pos_tol = 100.0 / len(x) + TOL_STAT
     for k, want in pv_stats.items():
-        tol = TOL_MOMENT if k in ("skew", "excess_kurtosis") else TOL_STAT
+        if k in ("skew", "excess_kurtosis"):
+            tol = TOL_MOMENT
+        elif k == "pct_positive":
+            tol = pos_tol
+        else:
+            tol = TOL_STAT
         if abs(got[k] - want) > tol:
-            fails.append(f"{k}: got {got[k]:.4f}, PV says {want:.4f}")
+            fails.append(f"{k}: got {got[k]:.4f}, PV says {want:.4f} "
+                         f"(tol {tol:.4f})")
     for q, want in (pv_pctiles or {}).items():
         got_v = float(np.percentile(x, q))
         if abs(got_v - want) > 0.15:

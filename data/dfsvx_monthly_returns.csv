@@ -9,6 +9,10 @@
 #   pctiles: 1st -14.56  5th -8.38  25th -2.09  50th 1.36  75th 4.61
 #            95th 10.00  99th 14.87
 #
+# NOTE: an earlier version of pv_series claimed PV`s `-0.00%` sign was
+# meaningful, inferred from this series alone. DFSCX falsified it. % positive
+# now carries a one-month tolerance instead. See pv_series convention 3.
+#
 # WHY THIS SERIES MATTERS (open-questions Q1): the panel's US Small Value
 # sleeve is VISVX, which starts 1998-06 -- AFTER the dot-com bubble began
 # inflating. DFSVX starts 1993-03 and covers the full run-up and unwind, which

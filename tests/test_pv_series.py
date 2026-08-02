@@ -12,26 +12,41 @@ import pandas as pd
 import pytest
 
 import pv_series as PV
+import validate_dfscx_series as C
 import validate_dfsvx_series as D
 
 
 class TestPositiveMask:
-    def test_signed_zero_is_not_positive(self):
+    def test_zero_is_never_counted_positive(self):
+        # Neither sign of zero counts. The sign-bit rule that fit DFSVX was
+        # falsified by DFSCX; see convention 3.
+        assert not PV.positive_mask(np.array([0.0]))[0]
         assert not PV.positive_mask(np.array([-0.0]))[0]
-
-    def test_unsigned_zero_is_positive(self):
-        assert PV.positive_mask(np.array([0.0]))[0]
 
     def test_ordinary_values_behave_normally(self):
         got = PV.positive_mask(np.array([1.0, -1.0, 0.01, -0.01]))
         assert list(got) == [True, False, True, False]
 
-    def test_the_dfsvx_series_needs_this_to_reconcile(self):
-        # 245 months are strictly positive; PV reports 246 because one of the
-        # two zero months is `0.00` and the other `-0.00`.
-        r = PV.load_pv_csv(D.DFSVX_CSV)["monthly_return"].values
-        assert (r > 0).sum() == 245
-        assert PV.positive_mask(r).sum() == 246
+    def test_the_two_series_disagree_on_how_pv_treats_a_zero_month(self):
+        # This is why % positive gets a one-month tolerance instead of a rule.
+        dfsvx = PV.load_pv_csv(D.DFSVX_CSV)["monthly_return"].values
+        dfscx = PV.load_pv_csv(C.DFSCX_CSV)["monthly_return"].values
+        # DFSVX: PV's 61.35% implies 246, one MORE than strictly positive.
+        assert (dfsvx > 0).sum() == 245
+        assert round(61.35 / 100 * len(dfsvx)) == 246
+        # DFSCX: PV's 62.53% implies 267, exactly the strict count.
+        assert (dfscx > 0).sum() == 267
+        assert round(62.53 / 100 * len(dfscx)) == 267
+
+    def test_one_month_of_ambiguity_is_tolerated_but_two_is_not(self):
+        r = pd.Series(np.r_[np.full(60, 1.0), np.full(40, -1.0)])
+        stats = dict(mean=r.mean(), std=PV.population_moments(r.values)[0],
+                     minimum=-1.0, maximum=1.0, pct_positive=61.0,
+                     skew=PV.population_moments(r.values)[1],
+                     excess_kurtosis=PV.population_moments(r.values)[2])
+        assert PV.check_distribution(r, stats) == []      # 1pp off, n=100
+        stats["pct_positive"] = 63.0                      # 3pp off
+        assert PV.check_distribution(r, stats) != []
 
 
 class TestBalanceTolerance:
@@ -107,3 +122,21 @@ class TestDfsvxRealSeries:
         assert D.FIRST_FULL_MONTH is None
         r = PV.load_pv_csv(D.DFSVX_CSV)["monthly_return"]
         assert PV.check_distribution(r, D.PV_STATS, D.PV_PCTILES) == []
+
+
+class TestDfscxRealSeries:
+    def test_every_gate_passes(self):
+        C.main()
+
+    def test_is_a_distinct_sleeve_from_dfsvx(self):
+        # Micro cap and small VALUE must not be treated as interchangeable.
+        micro = PV.load_pv_csv(C.DFSCX_CSV)["monthly_return"]
+        val = PV.load_pv_csv(D.DFSVX_CSV)["monthly_return"]
+        j = pd.concat([micro, val], axis=1, sort=True).dropna()
+        assert j.iloc[:, 0].corr(j.iloc[:, 1]) < 0.97
+
+    def test_starts_1991_and_does_not_reach_volcker(self):
+        r = PV.load_pv_csv(C.DFSCX_CSV)
+        assert r.index.min() == pd.Timestamp("1991-01-31")
+        assert len(r) == 427
+        assert r.index.min() > pd.Timestamp("1983-01-01")   # Q3 still open
