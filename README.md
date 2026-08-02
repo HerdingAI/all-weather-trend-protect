@@ -6,6 +6,22 @@ knowing what to deploy when — not finding one flavor that does everything. Eac
 is a tool built for one regime, and the out-of-sample numbers tell you when to reach for it.
 *Research / illustration only. Not investment advice.*
 
+---
+
+## Two bodies of work
+
+**1. [The allocation study](docs/allocation-study.md)** — *start here if you want
+"what should I hold?"* A framework for comparing allocations that separates real
+edges from curve fits, with the noise floor measured rather than assumed. Its
+headline result is negative and useful: across **2,139,753 enumerated
+portfolios**, searching for the optimum loses to simply holding a fixed book by
+**5.4pp/yr** once hindsight is removed.
+
+**2. The TrendProtect flavors** (below) — a set of regime-specific tools and a
+measured map of when each one applies.
+
+They share the dataset and the discipline; they answer different questions.
+
 ## What's here
 
 - **A returns dataset.** 342 tickers from Yahoo Finance, daily to 1927, monthly to 1962,
@@ -131,7 +147,16 @@ risk_parity_seasons.py  canonical four-seasons walk-forward (v3)
 risk_parity_eval.py    anchored train/test eval + the 47 TrendProtect flavors (v2)
 risk_parity_backtest.py  in-sample composition search (v1, appendix)
 all_weather_v2.py      All-Weather baseline
+candidates.py          the declared allocation set (fixed in advance, on purpose)
+compare_candidates.py  headline comparison, crises, entry timing, cashflows
+frontier_sweep.py      exhaustive sweep of every long-only combination
+frontier_walkforward.py  the same search, with hindsight removed
+factor_axis_test.py    is a sleeve a genuinely independent return source?
+rate_regime_test.py    behaviour across sustained rising-yield episodes
+pv_series.py           gate for externally-supplied return series
+build_study_panel.py   ticker chains -> asset-class exposures, with seam checks
 docs/                  data dictionary, methodology, peer review, full flavor catalog
+docs/allocation-study.md   the allocation framework: value, method, limits, usage
 output/                reports + summary CSVs (giant per-combo dumps gitignored)
 ```
 
@@ -145,6 +170,13 @@ pip install -r requirements.txt
 
 .venv/bin/python risk_parity_seasons.py        # canonical four-seasons walk-forward
 .venv/bin/python risk_parity_eval.py --score-mode asymmetric2   # the TrendProtect flavors
+
+# the allocation study
+.venv/bin/python build_study_panel.py      # exposures from ticker chains
+.venv/bin/python compare_candidates.py     # compare the declared books
+.venv/bin/python frontier_sweep.py         # what is achievable (2.1M portfolios)
+.venv/bin/python frontier_walkforward.py   # ...and whether any of it survives
+.venv/bin/python -m pytest tests/ -q       # 222 tests
 ```
 
 The per-combo `train_results.csv` / `combinations_results.csv` tables are regenerable and
