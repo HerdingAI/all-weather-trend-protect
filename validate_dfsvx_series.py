@@ -29,10 +29,13 @@ PV_PCTILES = {1: -14.56, 5: -8.38, 25: -2.09, 50: 1.36, 75: 4.61,
 # DFSVX's inception month is complete, unlike DFUS -- all 401 months reconcile.
 FIRST_FULL_MONTH = None
 
-# The panel's splice bar, from build_study_panel.
-SEAM_TOL_PP = 1.50
-SEAM_TE_RATIO = 0.35
-SEAM_MIN_OVERLAP = 24
+# The panel's splice bar. IMPORTED, not restated -- these were duplicated here
+# as 1.50/0.35 and the real values are 1.00/0.30, so DFSVX was reported as
+# passing a seam check it actually fails. Duplicated constants drift; a copy
+# that is wrong in the permissive direction silently authorises a bad splice.
+from build_study_panel import (  # noqa: E402
+    SEAM_MIN_OVERLAP, SEAM_TE_RATIO, SEAM_TOL_PP,
+)
 
 
 def cagr(s: pd.Series) -> float:
@@ -67,10 +70,15 @@ def main() -> None:
     ok4 = (len(j) >= SEAM_MIN_OVERLAP and mean_gap <= SEAM_TOL_PP
            and te_ratio <= SEAM_TE_RATIO)
     print("  PASS -- DFSVX may extend the US Small Value sleeve before 1998-06"
-          if ok4 else "  FAIL -- not spliceable; usable only as its own series")
-    failed |= not ok4
+          if ok4 else
+          "  FAIL -- NOT spliceable. Usable only as its own series, outside\n"
+          "          the panel. The sleeve stays truncated at 1998-06, which\n"
+          "          means panel comparisons EXCLUDE the dot-com run-up.")
 
-    print("\n" + ("REJECTED" if failed else "ACCEPTED"))
+    # TEST 4 failing does not reject the DATA -- the series is sound and the
+    # first three gates passed. It rejects one USE of it. Keep those separate.
+    print("\n" + ("REJECTED" if failed else "ACCEPTED (series is sound)"))
+    print("  splice authorised: " + ("yes" if ok4 else "NO"))
     if failed:
         sys.exit(1)
 

@@ -1,0 +1,4 @@
+sleeve,control_gold_duration,corr_vs_gold,corr_vs_duration,uncorrelated,amplifies_tail,is_third_axis
+smallval,0.6464020736499827,0.40398938488252956,0.37608095367381045,True,True,False
+microcap,0.6464020736499827,0.4247500673951915,0.4485573464471113,True,True,False
+intl,0.6464020736499827,0.7173766723434547,0.42359516262798164,False,False,False

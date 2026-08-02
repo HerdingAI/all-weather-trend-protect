@@ -71,7 +71,59 @@ VARIANTS = {
         "Gold": 0.20, "Long Treasuries": 0.20},
 }
 
-CANDIDATES = {**REFERENCES, **VARIANTS}
+# ---------------------------------------------------------------------------
+# Phase C: small-value tilts.
+#
+# WHY THESE EXIST. factor_axis_test.py asked whether small value is a third
+# uncorrelated return source, on the same bar gold and long Treasuries had to
+# clear. The answer was split, and the split is what these books test:
+#
+#   (a) at REGIME frequency it IS partially independent -- its 36m excess
+#       correlates 0.404 with gold's and 0.376 with duration's, against a
+#       control of 0.646 between gold and duration themselves. So it is not
+#       merely a market clone.
+#   (b) at MONTHLY frequency it AMPLIFIES the tail the ladder constrains:
+#       -8.40%/mo in the worst decile of market months versus the market's
+#       own -7.70%, up in 1 month of 41.
+#
+# So it is a diversifying RETURN sleeve, not a protective axis. It can only
+# improve Sortino by out-earning its own drawdown cost, which is exactly the
+# trade the ladder prices. These books measure that trade instead of asserting
+# it either way.
+#
+# CONTAMINATION IS ACKNOWLEDGED. The dot-com numbers were seen before these
+# were written, so the mitigation is a full round-number GRID -- small value
+# substituted for US equity at 10/20/30% of the sleeve, with the gold and
+# duration weights of the existing books held FIXED. Nothing is tuned, and no
+# weight here was chosen because it looked good.
+SMALL_VALUE_TILTS = {
+    # 60/20/20 base, small value taking 10/20/30% of the 60 equity points.
+    "60/20/20 +10% SV": {
+        "US Total Market": 0.54, "US Small Value": 0.06,
+        "Gold": 0.20, "Long Treasuries": 0.20},
+    "60/20/20 +20% SV": {
+        "US Total Market": 0.48, "US Small Value": 0.12,
+        "Gold": 0.20, "Long Treasuries": 0.20},
+    "60/20/20 +30% SV": {
+        "US Total Market": 0.42, "US Small Value": 0.18,
+        "Gold": 0.20, "Long Treasuries": 0.20},
+    # 50/25/25 base, same grid on the 50 equity points.
+    "50/25/25 +10% SV": {
+        "US Total Market": 0.45, "US Small Value": 0.05,
+        "Gold": 0.25, "Long Treasuries": 0.25},
+    "50/25/25 +20% SV": {
+        "US Total Market": 0.40, "US Small Value": 0.10,
+        "Gold": 0.25, "Long Treasuries": 0.25},
+    "50/25/25 +30% SV": {
+        "US Total Market": 0.35, "US Small Value": 0.15,
+        "Gold": 0.25, "Long Treasuries": 0.25},
+    # The user's own tilt, as the incumbent anchor for this question: their
+    # Current allocation carries 7% small value against 57% broad US.
+    "80/20 VTI-GLD +7% SV": {
+        "US Total Market": 0.73, "US Small Value": 0.07, "Gold": 0.20},
+}
+
+CANDIDATES = {**REFERENCES, **VARIANTS, **SMALL_VALUE_TILTS}
 
 # The user's incumbent and the book they were considering, named so reports can
 # always show the comparison that actually matters to them.
