@@ -1,0 +1,11 @@
+ceiling,objective,cagr,maxdd,sortino,weights
+40,sortino,5.461645,-15.159977,1.8406350434535206,"{'US Total Market': 0.1, 'US Aggregate Bonds': 0.75, 'Gold': 0.15}"
+40,cagr,10.422218,-29.469204,1.162850068949724,"{'US Small Value': 0.45, 'PM Equity': 0.15, 'Gold': 0.4}"
+35,sortino,5.461645,-15.159977,1.8406350434535206,"{'US Total Market': 0.1, 'US Aggregate Bonds': 0.75, 'Gold': 0.15}"
+35,cagr,10.422218,-29.469204,1.162850068949724,"{'US Small Value': 0.45, 'PM Equity': 0.15, 'Gold': 0.4}"
+30,sortino,5.461645,-15.159977,1.8406350434535206,"{'US Total Market': 0.1, 'US Aggregate Bonds': 0.75, 'Gold': 0.15}"
+30,cagr,10.422218,-29.469204,1.162850068949724,"{'US Small Value': 0.45, 'PM Equity': 0.15, 'Gold': 0.4}"
+25,sortino,5.461645,-15.159977,1.8406350434535206,"{'US Total Market': 0.1, 'US Aggregate Bonds': 0.75, 'Gold': 0.15}"
+25,cagr,10.346901,-23.934824,1.3324450135422137,"{'US Small Value': 0.45, 'Gold': 0.55}"
+20,sortino,5.461645,-15.159977,1.8406350434535206,"{'US Total Market': 0.1, 'US Aggregate Bonds': 0.75, 'Gold': 0.15}"
+20,cagr,9.428131,-19.912983,1.3977403735378402,"{'US Small Cap': 0.2, 'US Small Value': 0.2, 'Long Treasuries': 0.15, 'Gold': 0.45}"
