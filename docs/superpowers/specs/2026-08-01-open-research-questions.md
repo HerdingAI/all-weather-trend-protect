@@ -71,25 +71,70 @@ as evidence, not as a candidate sleeve, and it must be labeled as such.
 
 ---
 
-## Q2 — Can the DFA implementation edge be tested at all?
+## Q2 — Can the DFA implementation edge be tested? [REOPENED 2026-08-01]
 
-The claim is **60bps/yr** from avoiding index-rebalancing adverse selection.
-Years needed for `t=2`, by tracking error:
+**This question was closed on an arithmetic error and is now reopened.** The
+close assumed a tracking error of 0.75-2.0%/yr, implying 6-44 years were needed.
+The user supplied DFUS, the TE was *measured* rather than assumed, and it is
+**0.67%/yr** — implying **4.8 years**. The record is 5.1. The original reasoning
+is preserved above the correction so the failure mode stays visible: an assumed
+input, propagated to a confident negative conclusion.
+
+Validated by `validate_dfus_series.py` (4 tests, all pass). Two conventions had
+to be recovered before PV's own numbers reconciled, and one of them was a data
+defect:
+
+- PV reports **population** moments (divide by n), not bias-corrected ones.
+- **2021-06 is a partial month** — DFUS converted from mutual fund to ETF
+  mid-June 2021. PV silently drops it. Compounding it would have been the exact
+  partial-month defect `build_aggregates.py` already guards against.
+
+All five of PV's moments reconcile exactly on 61 full months, population
+estimators.
+
+### Result, 2021-07 .. 2026-07, n=61
 
 ```
-TE=0.75%/yr ->  6.2 yrs      TE=1.50%/yr -> 25.0 yrs
-TE=1.00%/yr -> 11.1 yrs      TE=2.00%/yr -> 44.4 yrs
+DFUS 12.74%/yr   VTI 11.85%/yr   gap +0.89pp/yr   t=2.64
+corr 0.9991   TE 0.67%/yr   TE/vol 0.042
 ```
 
-DFUS has ~4 years of ETF history. Its `DTMEX` predecessor is not comparable
-(different objective, different exclusions, +19bps expense gap).
+Replicating Felix's REIT adjustment (DFUS excludes REITs; blend it back at VTI's
+REIT weight using VNQ):
 
-**Provisional answer: no**, not to an actionable standard. 0.60pp sits at ~5x the
-same-asset noise floor. This is recorded so it is not re-litigated; supplying
-DFUS data does not change the arithmetic.
+```
+VNQ 2.6%:  +0.66pp   t=2.11      <- matches the paper's 60bps claim
+VNQ 3.0%:  +0.63pp   t=1.98
+VNQ 3.5%:  +0.58pp   t=1.81
+```
 
-**Would reopen it:** a long series where the *mechanism* is separable — e.g. a
-"lazy index" reconstruction vs a standard index over 25+ years.
+That is an independent replication of the ~60bps figure, arrived at from a
+different direction.
+
+### What still argues against acting on it
+
+- **One 5-year window, selected after the fact.** This is the exact shape of
+  claim that walk-forward destroyed: in-sample significance at `t~2` on a
+  post-hoc window. The fund is discussed *because* it outperformed.
+- **The edge is decaying within the sample.** First half `+1.23pp` (t=2.20),
+  second half `+0.51pp` (t=1.49, not significant).
+- **The 24-month rolling win rate is 100% (38/38) but those windows overlap
+  heavily** — roughly 2.5 independent observations, not 38. It is much weaker
+  evidence than it looks.
+- One regime only: 2021-2026, containing a single bear market.
+
+### Why it still matters
+
+At ~0.6pp/yr on the equity sleeve, a 50-60% equity book gains ~0.3-0.4pp/yr.
+The drawdown ladder costs **0.88pp/yr**. So this sits in the same order of
+magnitude as the allocation decisions under consideration — not a rounding
+error, and not decisive either.
+
+**Status:** live, and unusually testable. Unlike a return premium, this is a
+structural claim with a stated mechanism, so it can be checked *prospectively*
+rather than only re-fit. **Data that would settle it:** DFUS/VTI extended
+forward, or `DFAC`/`AVUS`/`AVLV` as independent same-mechanism funds — separate
+implementations of one claim beat a longer record of one fund.
 
 ---
 
@@ -208,4 +253,5 @@ rejected if it fails. `GC=F` was rejected as a gold proxy on exactly this basis
 3. **Q5** — commodities pre-1996, for the same reason as Q3.
 4. **Q4** — survivorship magnitude.
 5. **Q6** — tax tiebreaker. No data needed; run when candidates settle.
-6. **Q2** — closed unless the mechanism becomes separable.
+6. **Q2** — reopened; testable prospectively. Needs DFAC/AVUS/AVLV or a
+   forward extension of DFUS, not a longer look at the same window.
